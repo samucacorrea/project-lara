@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { X, Database, Table, Server, CheckCircle2, AlertCircle, Loader2, Trash2 } from 'lucide-react';
 import { DataSource, DataSourcePayload, DataSourceType } from '../types';
+import { previewDataSourceColumns } from '../services/dataSourcesService';
 
 interface DataSourcesModalProps {
   isOpen: boolean;
@@ -24,6 +25,7 @@ const googleDefaults = {
   spreadsheetId: '',
   worksheet: '',
   worksheets: [] as string[],
+  columnTypes: {} as Record<string, Record<string, string>>,
 };
 
 const bigQueryDefaults = {
@@ -34,6 +36,30 @@ const bigQueryDefaults = {
   serviceAccountJson: '',
   location: '',
 };
+
+const supabaseDefaults = {
+  host: '',
+  port: '5432',
+  database: 'postgres',
+  schema: 'public',
+  username: '',
+  password: '',
+  sslmode: 'require',
+};
+
+const GOOGLE_COLUMN_TYPE_OPTIONS = [
+  { value: 'string', label: 'string / texto curto' },
+  { value: 'varchar', label: 'varchar' },
+  { value: 'text', label: 'text / texto longo' },
+  { value: 'int', label: 'int / inteiro' },
+  { value: 'bigint', label: 'bigint' },
+  { value: 'float', label: 'float' },
+  { value: 'double', label: 'double' },
+  { value: 'numeric', label: 'numeric / decimal' },
+  { value: 'boolean', label: 'boolean' },
+  { value: 'date', label: 'date' },
+  { value: 'datetime', label: 'datetime' },
+];
 
 export const DataSourcesModal: React.FC<DataSourcesModalProps> = ({
   isOpen,
@@ -53,6 +79,7 @@ export const DataSourcesModal: React.FC<DataSourcesModalProps> = ({
   const [mysqlConfig, setMysqlConfig] = useState(mysqlDefaults);
   const [googleConfig, setGoogleConfig] = useState(googleDefaults);
   const [bigQueryConfig, setBigQueryConfig] = useState(bigQueryDefaults);
+  const [supabaseConfig, setSupabaseConfig] = useState(supabaseDefaults);
   const [googleWorksheetInput, setGoogleWorksheetInput] = useState('');
   const [bigQueryTableInput, setBigQueryTableInput] = useState('');
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -67,6 +94,9 @@ export const DataSourcesModal: React.FC<DataSourcesModalProps> = ({
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
   const [confirmDeleteName, setConfirmDeleteName] = useState('');
   const [confirmDeleteInput, setConfirmDeleteInput] = useState('');
+  const [googleSelectedWorksheet, setGoogleSelectedWorksheet] = useState('');
+  const [googlePreviewColumns, setGooglePreviewColumns] = useState<Record<string, Array<{ name: string; type: string }>>>({});
+  const [googleColumnsLoading, setGoogleColumnsLoading] = useState(false);
 
   useEffect(() => {
     if (isOpen) {
@@ -144,13 +174,25 @@ export const DataSourcesModal: React.FC<DataSourcesModalProps> = ({
     setMysqlConfig(mysqlDefaults);
     setGoogleConfig(googleDefaults);
     setBigQueryConfig(bigQueryDefaults);
+    setSupabaseConfig(supabaseDefaults);
     setGoogleWorksheetInput('');
     setBigQueryTableInput('');
     setEditingId(null);
     setConnectionStatus('idle');
     setErrorMessage(null);
     setShowBigQueryHelp(false);
+    setGoogleSelectedWorksheet('');
+    setGooglePreviewColumns({});
+    setGoogleColumnsLoading(false);
   };
+
+  const normalizedGoogleTables = googleConfig.worksheets.length
+    ? googleConfig.worksheets
+    : googleConfig.worksheet
+    ? [googleConfig.worksheet]
+    : [];
+
+  const googleActiveWorksheet = googleSelectedWorksheet || normalizedGoogleTables[0] || '';
 
   const handleCreate = async () => {
     const normalizedName = configName.trim();
@@ -184,11 +226,17 @@ export const DataSourcesModal: React.FC<DataSourcesModalProps> = ({
       return;
     }
 
-    const normalizedGoogleTables = googleConfig.worksheets.length
-      ? googleConfig.worksheets
-      : googleConfig.worksheet
-      ? [googleConfig.worksheet]
-      : [];
+    if (
+      selectedType === 'supabase' &&
+      (!supabaseConfig.host ||
+        !supabaseConfig.port ||
+        !supabaseConfig.database ||
+        !supabaseConfig.username ||
+        !supabaseConfig.password)
+    ) {
+      setErrorMessage('Complete host, porta, database, usuário e senha do Supabase.');
+      return;
+    }
 
     const normalizedBigQueryTables = bigQueryConfig.tables.length
       ? bigQueryConfig.tables
@@ -210,14 +258,25 @@ export const DataSourcesModal: React.FC<DataSourcesModalProps> = ({
               spreadsheet_id: googleConfig.spreadsheetId,
               worksheet: googleDefaultTable,
               worksheets: normalizedGoogleTables,
+              column_types: googleConfig.columnTypes,
             }
-          : {
+          : selectedType === 'bigquery'
+          ? {
               project_id: bigQueryConfig.projectId,
               dataset: bigQueryConfig.dataset,
               table: bigQueryDefaultTable,
               tables: normalizedBigQueryTables,
               ...(bigQueryConfig.location ? { location: bigQueryConfig.location } : {}),
               service_account_json: bigQueryConfig.serviceAccountJson.trim(),
+            }
+          : {
+              host: supabaseConfig.host.trim(),
+              port: supabaseConfig.port.trim(),
+              database: supabaseConfig.database.trim(),
+              schema: supabaseConfig.schema.trim() || 'public',
+              username: supabaseConfig.username.trim(),
+              password: supabaseConfig.password,
+              sslmode: supabaseConfig.sslmode.trim() || 'require',
             },
       status: 'active',
     };
@@ -267,7 +326,13 @@ export const DataSourcesModal: React.FC<DataSourcesModalProps> = ({
         spreadsheetId: String(source.config.spreadsheet_id ?? ''),
         worksheet: fallbackWorksheet,
         worksheets: normalized,
+        columnTypes:
+          source.config.column_types && typeof source.config.column_types === 'object'
+            ? (source.config.column_types as Record<string, Record<string, string>>)
+            : {},
       });
+      setGoogleSelectedWorksheet(normalized[0] ?? fallbackWorksheet);
+      setGooglePreviewColumns({});
     }
 
     if (source.type === 'bigquery') {
@@ -283,6 +348,18 @@ export const DataSourcesModal: React.FC<DataSourcesModalProps> = ({
         location: String(source.config.location ?? ''),
       });
     }
+
+    if (source.type === 'supabase') {
+      setSupabaseConfig({
+        host: String(source.config.host ?? ''),
+        port: String(source.config.port ?? '5432'),
+        database: String(source.config.database ?? 'postgres'),
+        schema: String(source.config.schema ?? 'public'),
+        username: String(source.config.username ?? ''),
+        password: String(source.config.password ?? ''),
+        sslmode: String(source.config.sslmode ?? 'require'),
+      });
+    }
   };
 
   const addGoogleWorksheet = (value: string) => {
@@ -290,8 +367,69 @@ export const DataSourcesModal: React.FC<DataSourcesModalProps> = ({
     if (!trimmed) return;
     setGoogleConfig((prev) => {
       if (prev.worksheets.includes(trimmed)) return prev;
-      return { ...prev, worksheets: [...prev.worksheets, trimmed], worksheet: prev.worksheet || trimmed };
+      return {
+        ...prev,
+        worksheets: [...prev.worksheets, trimmed],
+        worksheet: prev.worksheet || trimmed,
+      };
     });
+    setGoogleSelectedWorksheet((prev) => prev || trimmed);
+  };
+
+  const loadGoogleColumnsPreview = async (worksheet: string) => {
+    const trimmedWorksheet = worksheet.trim();
+    if (!googleConfig.spreadsheetId.trim() || !trimmedWorksheet) {
+      setErrorMessage('Informe o ID da planilha e selecione uma aba para carregar as colunas.');
+      return;
+    }
+
+    try {
+      setGoogleColumnsLoading(true);
+      setErrorMessage(null);
+      const columns = await previewDataSourceColumns({
+        type: 'google_sheets',
+        table: trimmedWorksheet,
+        config: {
+          spreadsheet_id: googleConfig.spreadsheetId.trim(),
+          worksheet: trimmedWorksheet,
+          worksheets: normalizedGoogleTables,
+          column_types: googleConfig.columnTypes,
+        },
+      });
+
+      setGooglePreviewColumns((prev) => ({
+        ...prev,
+        [trimmedWorksheet]: columns.map((column) => ({
+          name: column.name,
+          type: String(column.type ?? 'string'),
+        })),
+      }));
+      setGoogleSelectedWorksheet(trimmedWorksheet);
+    } catch (error) {
+      setErrorMessage(error instanceof Error ? error.message : 'Erro ao carregar colunas da planilha.');
+    } finally {
+      setGoogleColumnsLoading(false);
+    }
+  };
+
+  const updateGoogleColumnType = (worksheet: string, columnName: string, type: string) => {
+    setGoogleConfig((prev) => ({
+      ...prev,
+      columnTypes: {
+        ...prev.columnTypes,
+        [worksheet]: {
+          ...(prev.columnTypes[worksheet] ?? {}),
+          [columnName]: type,
+        },
+      },
+    }));
+
+    setGooglePreviewColumns((prev) => ({
+      ...prev,
+      [worksheet]: (prev[worksheet] ?? []).map((column) =>
+        column.name === columnName ? { ...column, type } : column
+      ),
+    }));
   };
 
   const addBigQueryTable = (value: string) => {
@@ -308,7 +446,10 @@ export const DataSourcesModal: React.FC<DataSourcesModalProps> = ({
     setErrorMessage(null);
 
     setTimeout(() => {
-      if (mysqlConfig.host && mysqlConfig.username) {
+      if (
+        (selectedType === 'mysql' && mysqlConfig.host && mysqlConfig.username) ||
+        (selectedType === 'supabase' && supabaseConfig.host && supabaseConfig.username)
+      ) {
         setConnectionStatus('success');
       } else {
         setConnectionStatus('error');
@@ -329,6 +470,9 @@ export const DataSourcesModal: React.FC<DataSourcesModalProps> = ({
 
   const renderConfigSnippet = (ds: DataSource) => {
     if (ds.type === 'mysql') {
+      return (ds.config?.host as string) ?? null;
+    }
+    if (ds.type === 'supabase') {
       return (ds.config?.host as string) ?? null;
     }
     if (ds.type === 'google_sheets') {
@@ -396,9 +540,11 @@ export const DataSourcesModal: React.FC<DataSourcesModalProps> = ({
                           <div className={`p-3 rounded-xl ${
                             ds.type === 'mysql' ? 'bg-blue-50 text-blue-600' :
                             ds.type === 'google_sheets' ? 'bg-green-50 text-green-600' :
+                            ds.type === 'supabase' ? 'bg-emerald-50 text-emerald-600' :
                             'bg-purple-50 text-purple-600'
                           }`}>
                             {ds.type === 'mysql' && <Server size={20} />}
+                            {ds.type === 'supabase' && <Database size={20} />}
                             {ds.type === 'google_sheets' && <Table size={20} />}
                             {ds.type === 'bigquery' && <Database size={20} />}
                           </div>
@@ -477,9 +623,10 @@ export const DataSourcesModal: React.FC<DataSourcesModalProps> = ({
 
                  <div>
                    <label className="block text-xs font-bold text-gray-700 mb-3 uppercase tracking-wide">Tipo de Fonte</label>
-                   <div className="grid grid-cols-3 gap-3">
+                   <div className="grid grid-cols-4 gap-3">
                      {[
                        { id: 'mysql', label: 'MySQL', icon: Server },
+                       { id: 'supabase', label: 'Supabase', icon: Database },
                        { id: 'google_sheets', label: 'Sheets', icon: Table },
                        { id: 'bigquery', label: 'BigQuery', icon: Database },
                      ].map(type => (
@@ -582,6 +729,63 @@ export const DataSourcesModal: React.FC<DataSourcesModalProps> = ({
                     </div>
                  )}
 
+                 {selectedType === 'supabase' && (
+                    <div className="pt-4 border-t border-gray-100 animate-in fade-in slide-in-from-top-2 duration-300">
+                        <h4 className="text-sm font-bold text-gray-800 mb-4 flex items-center gap-2">
+                            <Database size={16} className="text-gray-400"/> Configuração do Supabase
+                        </h4>
+                        <div className="grid grid-cols-12 gap-4">
+                            <div className="col-span-8">
+                                <label className="block text-[10px] font-bold text-gray-500 mb-1 uppercase">Host</label>
+                                <input type="text" placeholder="db.xxxxx.supabase.co" value={supabaseConfig.host} onChange={(e) => setSupabaseConfig({...supabaseConfig, host: e.target.value})} className="w-full p-2.5 bg-gray-50 border border-gray-200 rounded-lg text-sm focus:border-[#5B4DFF] outline-none" />
+                            </div>
+                            <div className="col-span-4">
+                                <label className="block text-[10px] font-bold text-gray-500 mb-1 uppercase">Porta</label>
+                                <input type="text" value={supabaseConfig.port} onChange={(e) => setSupabaseConfig({...supabaseConfig, port: e.target.value})} className="w-full p-2.5 bg-gray-50 border border-gray-200 rounded-lg text-sm focus:border-[#5B4DFF] outline-none" />
+                            </div>
+                            <div className="col-span-6">
+                                <label className="block text-[10px] font-bold text-gray-500 mb-1 uppercase">Database</label>
+                                <input type="text" value={supabaseConfig.database} onChange={(e) => setSupabaseConfig({...supabaseConfig, database: e.target.value})} className="w-full p-2.5 bg-gray-50 border border-gray-200 rounded-lg text-sm focus:border-[#5B4DFF] outline-none" />
+                            </div>
+                            <div className="col-span-6">
+                                <label className="block text-[10px] font-bold text-gray-500 mb-1 uppercase">Schema</label>
+                                <input type="text" value={supabaseConfig.schema} onChange={(e) => setSupabaseConfig({...supabaseConfig, schema: e.target.value})} placeholder="public" className="w-full p-2.5 bg-gray-50 border border-gray-200 rounded-lg text-sm focus:border-[#5B4DFF] outline-none" />
+                            </div>
+                            <div className="col-span-6">
+                                <label className="block text-[10px] font-bold text-gray-500 mb-1 uppercase">Usuário</label>
+                                <input type="text" value={supabaseConfig.username} onChange={(e) => setSupabaseConfig({...supabaseConfig, username: e.target.value})} placeholder="postgres.xxxxx" className="w-full p-2.5 bg-gray-50 border border-gray-200 rounded-lg text-sm focus:border-[#5B4DFF] outline-none" />
+                            </div>
+                            <div className="col-span-6">
+                                <label className="block text-[10px] font-bold text-gray-500 mb-1 uppercase">Senha</label>
+                                <input type="password" value={supabaseConfig.password} onChange={(e) => setSupabaseConfig({...supabaseConfig, password: e.target.value})} className="w-full p-2.5 bg-gray-50 border border-gray-200 rounded-lg text-sm focus:border-[#5B4DFF] outline-none" />
+                            </div>
+                            <div className="col-span-12">
+                                <label className="block text-[10px] font-bold text-gray-500 mb-1 uppercase">SSL Mode</label>
+                                <select value={supabaseConfig.sslmode} onChange={(e) => setSupabaseConfig({...supabaseConfig, sslmode: e.target.value})} className="w-full p-2.5 bg-gray-50 border border-gray-200 rounded-lg text-sm focus:border-[#5B4DFF] outline-none">
+                                  <option value="require">require</option>
+                                  <option value="prefer">prefer</option>
+                                  <option value="disable">disable</option>
+                                </select>
+                            </div>
+                        </div>
+
+                        <div className="mt-4 flex items-center justify-between bg-emerald-50/50 p-3 rounded-lg border border-emerald-100">
+                            <div className="text-xs">
+                                {connectionStatus === 'testing' && <span className="text-gray-500 flex items-center gap-2"><Loader2 size={14} className="animate-spin"/> Verificando credenciais...</span>}
+                                {connectionStatus === 'success' && <span className="text-green-600 flex items-center gap-2 font-medium"><CheckCircle2 size={14}/> Conectado com sucesso!</span>}
+                                {connectionStatus === 'error' && <span className="text-red-500 flex items-center gap-2 font-medium"><AlertCircle size={14}/> Falha na conexão.</span>}
+                                {connectionStatus === 'idle' && <span className="text-gray-500">Clique em testar para validar.</span>}
+                            </div>
+                            <button onClick={testConnection} disabled={connectionStatus === 'testing' || !supabaseConfig.host} className="text-xs font-bold text-[#5B4DFF] hover:text-[#4B3DCC] disabled:opacity-50 disabled:cursor-not-allowed px-4 py-2 bg-white border border-emerald-200 shadow-sm rounded-lg transition-colors hover:shadow-md">
+                                Testar Conexão
+                            </button>
+                        </div>
+                        <p className="text-[10px] text-gray-400 mt-2 text-center">
+                           Use os dados da conexão Postgres do Supabase. O schema padrão é <code>public</code>.
+                        </p>
+                    </div>
+                 )}
+
                  {/* Google Sheets Specific Fields */}
                  {selectedType === 'google_sheets' && (
                     <div className="pt-4 border-t border-gray-100 animate-in fade-in slide-in-from-top-2 duration-300">
@@ -625,14 +829,26 @@ export const DataSourcesModal: React.FC<DataSourcesModalProps> = ({
                                 <button
                                   type="button"
                                   onClick={() =>
-                                    setGoogleConfig((prev) => ({
-                                      ...prev,
-                                      worksheets: prev.worksheets.filter((item) => item !== worksheet),
-                                      worksheet:
-                                        prev.worksheet === worksheet
-                                          ? prev.worksheets.filter((item) => item !== worksheet)[0] ?? ''
-                                          : prev.worksheet,
-                                    }))
+                                    {
+                                      const nextWorksheets = googleConfig.worksheets.filter((item) => item !== worksheet);
+                                      setGoogleConfig((prev) => ({
+                                        ...prev,
+                                        worksheets: nextWorksheets,
+                                        worksheet:
+                                          prev.worksheet === worksheet
+                                            ? nextWorksheets[0] ?? ''
+                                            : prev.worksheet,
+                                        columnTypes: Object.fromEntries(
+                                          Object.entries(prev.columnTypes).filter(([key]) => key !== worksheet)
+                                        ),
+                                      }));
+                                      setGooglePreviewColumns((prev) =>
+                                        Object.fromEntries(Object.entries(prev).filter(([key]) => key !== worksheet))
+                                      );
+                                      setGoogleSelectedWorksheet((prev) =>
+                                        prev === worksheet ? nextWorksheets[0] ?? '' : prev
+                                      );
+                                    }
                                   }
                                   className="text-[#5B4DFF]/70 hover:text-[#5B4DFF]"
                                 >
@@ -678,6 +894,91 @@ export const DataSourcesModal: React.FC<DataSourcesModalProps> = ({
                           <code className="bg-white px-1 rounded text-[10px]">gviz</code> ). Torne a planilha pública ou
                           compartilhe apenas leitura com o e-mail do serviço configurado.
                         </div>
+
+                        {normalizedGoogleTables.length > 0 && (
+                          <div className="rounded-xl border border-gray-200 bg-white p-4 space-y-4">
+                            <div className="flex items-center justify-between gap-3">
+                              <div>
+                                <div className="text-[10px] font-bold text-gray-500 uppercase tracking-wide">
+                                  Etapa extra: tipar colunas
+                                </div>
+                                <p className="text-[11px] text-gray-500 mt-1">
+                                  Escolha como cada coluna desta aba deve ser interpretada no dashboard.
+                                </p>
+                              </div>
+                              <button
+                                type="button"
+                                onClick={() => googleActiveWorksheet && loadGoogleColumnsPreview(googleActiveWorksheet)}
+                                disabled={googleColumnsLoading || !googleActiveWorksheet || !googleConfig.spreadsheetId.trim()}
+                                className="shrink-0 rounded-lg border border-indigo-200 bg-indigo-50 px-3 py-2 text-[11px] font-semibold text-[#5B4DFF] disabled:opacity-50 disabled:cursor-not-allowed"
+                              >
+                                {googleColumnsLoading ? 'Carregando...' : 'Carregar colunas'}
+                              </button>
+                            </div>
+
+                            <div className="flex flex-wrap gap-2">
+                              {normalizedGoogleTables.map((worksheet) => (
+                                <button
+                                  key={worksheet}
+                                  type="button"
+                                  onClick={() => setGoogleSelectedWorksheet(worksheet)}
+                                  className={`rounded-full px-3 py-1 text-[11px] font-semibold transition-colors ${
+                                    googleActiveWorksheet === worksheet
+                                      ? 'bg-[#5B4DFF] text-white'
+                                      : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                                  }`}
+                                >
+                                  {worksheet}
+                                </button>
+                              ))}
+                            </div>
+
+                            {googleActiveWorksheet ? (
+                              googlePreviewColumns[googleActiveWorksheet]?.length ? (
+                                <div className="space-y-2 max-h-72 overflow-y-auto pr-1">
+                                  {googlePreviewColumns[googleActiveWorksheet].map((column) => (
+                                    <div
+                                      key={`${googleActiveWorksheet}:${column.name}`}
+                                      className="grid grid-cols-[minmax(0,1fr)_220px] gap-3 items-center rounded-lg border border-gray-100 bg-gray-50 px-3 py-2"
+                                    >
+                                      <div className="min-w-0">
+                                        <div className="truncate text-sm font-medium text-gray-800">{column.name}</div>
+                                        <div className="text-[11px] text-gray-400">
+                                          Aba: {googleActiveWorksheet}
+                                        </div>
+                                      </div>
+                                      <select
+                                        value={googleConfig.columnTypes[googleActiveWorksheet]?.[column.name] ?? column.type}
+                                        onChange={(event) =>
+                                          updateGoogleColumnType(
+                                            googleActiveWorksheet,
+                                            column.name,
+                                            event.target.value
+                                          )
+                                        }
+                                        className="w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm focus:border-[#5B4DFF] outline-none"
+                                      >
+                                        {GOOGLE_COLUMN_TYPE_OPTIONS.map((option) => (
+                                          <option key={option.value} value={option.value}>
+                                            {option.label}
+                                          </option>
+                                        ))}
+                                      </select>
+                                    </div>
+                                  ))}
+                                </div>
+                              ) : (
+                                <div className="rounded-lg border border-dashed border-gray-200 bg-gray-50 px-4 py-6 text-center text-sm text-gray-500">
+                                  Carregue as colunas da aba <strong>{googleActiveWorksheet}</strong> para definir os tipos.
+                                </div>
+                              )
+                            ) : (
+                              <div className="rounded-lg border border-dashed border-gray-200 bg-gray-50 px-4 py-6 text-center text-sm text-gray-500">
+                                Adicione ao menos uma aba para configurar os tipos das colunas.
+                              </div>
+                            )}
+                          </div>
+                        )}
                       </div>
                     </div>
                  )}
@@ -897,6 +1198,7 @@ export const DataSourcesModal: React.FC<DataSourcesModalProps> = ({
                    !selectedType ||
                    !configName.trim() ||
                    (selectedType === 'mysql' && connectionStatus !== 'success') ||
+                   (selectedType === 'supabase' && connectionStatus !== 'success') ||
                    (selectedType === 'google_sheets' &&
                      (!googleConfig.spreadsheetId.trim() ||
                       (googleConfig.worksheets.length === 0 && !googleConfig.worksheet.trim())))
@@ -905,6 +1207,12 @@ export const DataSourcesModal: React.FC<DataSourcesModalProps> = ({
                       !bigQueryConfig.dataset.trim() ||
                       (bigQueryConfig.tables.length === 0 && !bigQueryConfig.table.trim()) ||
                       !bigQueryConfig.serviceAccountJson.trim()))
+                   || (selectedType === 'supabase' &&
+                     (!supabaseConfig.host.trim() ||
+                      !supabaseConfig.port.trim() ||
+                      !supabaseConfig.database.trim() ||
+                      !supabaseConfig.username.trim() ||
+                      !supabaseConfig.password.trim()))
                  }
                  className="w-full py-3.5 bg-[#5B4DFF] text-white font-semibold rounded-xl shadow-lg shadow-indigo-200 hover:bg-[#4B3DCC] transition-all disabled:opacity-50 disabled:cursor-not-allowed disabled:shadow-none flex items-center justify-center gap-2"
                >

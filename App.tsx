@@ -7,6 +7,7 @@ import { DataSourcesModal } from './components/DataSourcesModal';
 import { DataSchemaModal } from './components/DataSchemaModal';
 import { SaveReportModal } from './components/SaveReportModal';
 import {
+  AppSettings,
   Widget,
   DataSource,
   WidgetType,
@@ -17,6 +18,7 @@ import {
   ReportLayout,
   CanvasSettings,
   JoinConfig,
+  RolePermissionKey,
 } from './types';
 import {
   Eye,
@@ -43,6 +45,8 @@ import { CalculatedMetricsProvider } from './components/CalculatedMetricsProvide
 import { LoginView } from './components/LoginView';
 import { JoinBuilder } from './components/extractor/JoinBuilder';
 import { UserSettingsView } from './components/UserSettingsView';
+import { AdminSettingsView } from './components/AdminSettingsView';
+import { fetchAppSettings } from './services/appSettingsService';
 
 const INITIAL_WIDGETS: Widget[] = [];
 
@@ -117,7 +121,7 @@ const clampWidgetStyleToWidth = (style: WidgetStyle, widthLimit: number): Widget
 
 function AppContent() {
   const [widgets, setWidgets] = useState<Widget[]>(INITIAL_WIDGETS);
-  const [viewMode, setViewMode] = useState<'list' | 'builder' | 'extractor' | 'settings'>('list');
+  const [viewMode, setViewMode] = useState<'list' | 'builder' | 'extractor' | 'settings' | 'admin'>('list');
   const [reports, setReports] = useState<ReportRecord[]>([]);
   const [isLoadingReports, setIsLoadingReports] = useState(false);
   const [reportsError, setReportsError] = useState<string | null>(null);
@@ -160,6 +164,40 @@ function AppContent() {
   const [isPreview, setIsPreview] = useState(false);
   const [isDataModalOpen, setIsDataModalOpen] = useState(false);
   const [isSchemaModalOpen, setIsSchemaModalOpen] = useState(false);
+  const [appSettings, setAppSettings] = useState<AppSettings>({
+    tool_name: 'Project Lara',
+    logo_url: null,
+    favicon_url: null,
+    role_permissions: {
+      admin: {
+        dashboard_list: true,
+        dashboard_create: true,
+        builder: true,
+        constructor: true,
+        manage_data_sources: true,
+        manage_schema: true,
+        admin_settings: true,
+      },
+      standard: {
+        dashboard_list: true,
+        dashboard_create: true,
+        builder: true,
+        constructor: true,
+        manage_data_sources: false,
+        manage_schema: false,
+        admin_settings: false,
+      },
+      viewer: {
+        dashboard_list: true,
+        dashboard_create: false,
+        builder: false,
+        constructor: false,
+        manage_data_sources: false,
+        manage_schema: false,
+        admin_settings: false,
+      },
+    },
+  });
   const canvasRef = useRef<HTMLDivElement>(null);
   const [reportLayout, setReportLayout] = useState<ReportLayout>('desktop');
   const [canvasSettings, setCanvasSettings] = useState<CanvasSettings>(defaultCanvasSettings);
@@ -294,7 +332,15 @@ function AppContent() {
     return () => window.removeEventListener('resize', clampAllWidgets);
   }, [getCanvasWidth]);
 
-  const canEdit = Boolean(user && (user.role === 'admin' || user.role === 'standard'));
+  const hasPermission = useCallback(
+    (key: RolePermissionKey) => {
+      if (!user) return false;
+      return Boolean(appSettings.role_permissions?.[user.role]?.[key]);
+    },
+    [appSettings.role_permissions, user]
+  );
+
+  const canEdit = Boolean(user && hasPermission('builder'));
 
   const formatDateTime = useCallback((value?: string) => {
     if (!value) return '---';
@@ -456,6 +502,27 @@ function AppContent() {
       setIsFetchingDataSources(false);
     }
   }, [addMessage, getErrorMessage]);
+
+  useEffect(() => {
+    fetchAppSettings()
+      .then(setAppSettings)
+      .catch(() => {
+        // keep defaults if branding endpoint fails
+      });
+  }, []);
+
+  useEffect(() => {
+    document.title = appSettings.tool_name || 'Project Lara';
+    if (appSettings.favicon_url) {
+      let link = document.querySelector("link[rel*='icon']") as HTMLLinkElement | null;
+      if (!link) {
+        link = document.createElement('link');
+        link.rel = 'icon';
+        document.head.appendChild(link);
+      }
+      link.href = appSettings.favicon_url;
+    }
+  }, [appSettings.favicon_url, appSettings.tool_name]);
 
   useEffect(() => {
     if (!user) return;
@@ -1085,6 +1152,17 @@ function AppContent() {
       return;
     }
 
+    if (segments[0] === 'admin' && segments[1] === 'settings') {
+      if (!user || !hasPermission('admin_settings')) {
+        pushRoute('/dashboards');
+        return;
+      }
+      setViewMode('admin');
+      setIsSharedView(false);
+      setSharedReportSlug(null);
+      return;
+    }
+
     if (segments[0] === 'extractor') {
       setViewMode('extractor');
       setIsSharedView(false);
@@ -1123,6 +1201,8 @@ function AppContent() {
     pushRoute,
     sharedReportSlug,
     startCreateDashboard,
+    user,
+    hasPermission,
     viewMode,
     routerLocation,
     currentUrlInfo,
@@ -1270,7 +1350,7 @@ function AppContent() {
   }
 
   if (!user && !shareSlugFromRoute && !isSharedView) {
-    return <LoginView />;
+    return <LoginView toolName={appSettings.tool_name} logoUrl={appSettings.logo_url} />;
   }
 
   if (shareSlugFromRoute && !isSharedView) {
@@ -1288,10 +1368,14 @@ function AppContent() {
           onAddWidget={() => null}
           showMenu
           activeView="extractor"
+          toolName={appSettings.tool_name}
+          logoUrl={appSettings.logo_url}
+          userRole={user?.role ?? null}
           onNavigateView={(next) => {
             if (next === 'list') pushRoute('/dashboards');
             if (next === 'builder') startCreateDashboard();
             if (next === 'extractor') setViewMode('extractor');
+            if (next === 'admin') pushRoute('/admin/settings');
           }}
         />
         <div className="flex-1 overflow-y-auto">
@@ -1329,7 +1413,7 @@ function AppContent() {
                 <LayoutGrid className="w-5 h-5" />
               </div>
               <div>
-                <p className="text-sm font-semibold text-gray-900">DashBuilder</p>
+                <p className="text-sm font-semibold text-gray-900">{appSettings.tool_name}</p>
                 <p className="text-xs text-gray-400">Painéis e relatórios</p>
               </div>
             </div>
@@ -1343,9 +1427,9 @@ function AppContent() {
                 </button>
                 <button
                   onClick={startCreateDashboard}
-                  disabled={!canEdit}
+                  disabled={!hasPermission('dashboard_create')}
                   className={`w-full flex items-center gap-3 px-3 py-2 rounded-xl text-sm font-medium ${
-                    canEdit
+                    hasPermission('dashboard_create')
                       ? 'text-gray-600 hover:text-[#5B4DFF] hover:bg-[#5B4DFF]/10'
                       : 'text-gray-400 cursor-not-allowed'
                   }`}
@@ -1368,12 +1452,17 @@ function AppContent() {
                   className="w-full flex items-center gap-3 px-3 py-2 rounded-xl text-sm font-medium text-gray-600 hover:text-[#5B4DFF] hover:bg-[#5B4DFF]/10"
                 >
                   <Settings className="w-4 h-4" />
-                  Geral
+                  Meu perfil
                 </button>
-                <button className="w-full flex items-center gap-3 px-3 py-2 rounded-xl text-sm font-medium text-gray-600 hover:text-[#5B4DFF] hover:bg-[#5B4DFF]/10">
-                  <Users className="w-4 h-4" />
-                  Equipe
-                </button>
+                {user?.role === 'admin' && (
+                  <button
+                    onClick={() => pushRoute('/admin/settings')}
+                    className="w-full flex items-center gap-3 px-3 py-2 rounded-xl text-sm font-medium text-gray-600 hover:text-[#5B4DFF] hover:bg-[#5B4DFF]/10"
+                  >
+                    <Users className="w-4 h-4" />
+                    Configurações
+                  </button>
+                )}
               </div>
             </div>
           </div>
@@ -1431,7 +1520,7 @@ function AppContent() {
                 <option>Editor</option>
                 <option>Visualizador</option>
               </select>
-              {canEdit && (
+              {hasPermission('dashboard_create') && (
                 <button
                   onClick={startCreateDashboard}
                   className="px-4 py-2.5 bg-[#5B4DFF] text-white rounded-xl shadow-sm hover:bg-[#4b3ae6] text-sm font-semibold flex items-center gap-2"
@@ -1460,7 +1549,7 @@ function AppContent() {
                   ? 'Nenhum dashboard criado ainda.'
                   : 'Nenhum resultado encontrado.'}
               </p>
-              {reports.length === 0 && canEdit && (
+              {reports.length === 0 && hasPermission('dashboard_create') && (
                 <button
                   onClick={startCreateDashboard}
                   className="mt-4 px-5 py-2.5 bg-[#5B4DFF] text-white rounded-xl shadow-md hover:bg-[#4b3ae6] text-sm font-semibold"
@@ -1560,7 +1649,7 @@ function AppContent() {
                 );
               })}
 
-              {canEdit && (
+              {hasPermission('dashboard_create') && (
                 <button
                   onClick={startCreateDashboard}
                   className="border-2 border-dashed border-gray-200 rounded-2xl p-6 text-center text-gray-500 hover:border-[#5B4DFF] hover:text-[#5B4DFF] transition-colors"
@@ -1590,7 +1679,7 @@ function AppContent() {
                 <LayoutGrid className="w-5 h-5" />
               </div>
               <div>
-                <p className="text-sm font-semibold text-gray-900">DashBuilder</p>
+                <p className="text-sm font-semibold text-gray-900">{appSettings.tool_name}</p>
                 <p className="text-xs text-gray-400">Painéis e relatórios</p>
               </div>
             </div>
@@ -1607,9 +1696,9 @@ function AppContent() {
                 </button>
                 <button
                   onClick={startCreateDashboard}
-                  disabled={!canEdit}
+                  disabled={!hasPermission('dashboard_create')}
                   className={`w-full flex items-center gap-3 px-3 py-2 rounded-xl text-sm font-medium ${
-                    canEdit
+                    hasPermission('dashboard_create')
                       ? 'text-gray-600 hover:text-[#5B4DFF] hover:bg-[#5B4DFF]/10'
                       : 'text-gray-400 cursor-not-allowed'
                   }`}
@@ -1631,10 +1720,15 @@ function AppContent() {
                   <Settings className="w-4 h-4" />
                   Perfil
                 </button>
-                <button className="w-full flex items-center gap-3 px-3 py-2 rounded-xl text-sm font-medium text-gray-600 hover:text-[#5B4DFF] hover:bg-[#5B4DFF]/10">
-                  <Users className="w-4 h-4" />
-                  Equipe
-                </button>
+                {user?.role === 'admin' && (
+                  <button
+                    onClick={() => pushRoute('/admin/settings')}
+                    className="w-full flex items-center gap-3 px-3 py-2 rounded-xl text-sm font-medium text-gray-600 hover:text-[#5B4DFF] hover:bg-[#5B4DFF]/10"
+                  >
+                    <Users className="w-4 h-4" />
+                    Configurações
+                  </button>
+                )}
               </div>
             </div>
           </div>
@@ -1642,6 +1736,54 @@ function AppContent() {
 
         <main className="flex-1 overflow-y-auto p-10">
           <UserSettingsView />
+        </main>
+      </div>
+    );
+  }
+
+  if (viewMode === 'admin' && !sharedReportSlug && user?.role === 'admin') {
+    return (
+      <div className="flex h-screen bg-[#F5F6FA] text-slate-800">
+        <aside className="w-64 bg-white border-r border-gray-100 flex flex-col">
+          <div className="p-6 space-y-6">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-xl bg-[#5B4DFF]/10 flex items-center justify-center text-[#5B4DFF] overflow-hidden">
+                {appSettings.logo_url ? <img src={appSettings.logo_url} alt={appSettings.tool_name} className="w-full h-full object-contain" /> : <LayoutGrid className="w-5 h-5" />}
+              </div>
+              <div>
+                <p className="text-sm font-semibold text-gray-900">{appSettings.tool_name}</p>
+                <p className="text-xs text-gray-400">Painéis e relatórios</p>
+              </div>
+            </div>
+
+            <div>
+              <p className="text-[11px] font-semibold text-gray-400 uppercase">Admin</p>
+              <div className="mt-3 space-y-2">
+                <button
+                  onClick={() => pushRoute('/dashboards')}
+                  className="w-full flex items-center gap-3 px-3 py-2 rounded-xl text-sm font-medium text-gray-600 hover:text-[#5B4DFF] hover:bg-[#5B4DFF]/10"
+                >
+                  <LayoutGrid className="w-4 h-4" />
+                  Dashboards
+                </button>
+                <button
+                  onClick={() => pushRoute('/settings')}
+                  className="w-full flex items-center gap-3 px-3 py-2 rounded-xl text-sm font-medium text-gray-600 hover:text-[#5B4DFF] hover:bg-[#5B4DFF]/10"
+                >
+                  <Users className="w-4 h-4" />
+                  Meu perfil
+                </button>
+                <button className="w-full flex items-center gap-3 px-3 py-2 rounded-xl text-sm font-medium bg-[#5B4DFF]/10 text-[#5B4DFF]">
+                  <Settings className="w-4 h-4" />
+                  Configurações
+                </button>
+              </div>
+            </div>
+          </div>
+        </aside>
+
+        <main className="flex-1 overflow-y-auto p-10">
+          <AdminSettingsView settings={appSettings} onSettingsUpdated={setAppSettings} />
         </main>
       </div>
     );
@@ -1656,6 +1798,9 @@ function AppContent() {
           showMenu
           activeView={viewMode}
           collapsed={sidebarCollapsed}
+          toolName={appSettings.tool_name}
+          logoUrl={appSettings.logo_url}
+          userRole={user?.role ?? null}
           onToggleCollapse={() => setSidebarCollapsed((prev) => !prev)}
           onNavigateView={(next) => {
             if (next === 'list') {
@@ -1668,6 +1813,9 @@ function AppContent() {
             if (next === 'extractor') {
               setViewMode('extractor');
               pushRoute('/extractor');
+            }
+            if (next === 'admin') {
+              pushRoute('/admin/settings');
             }
           }}
         />

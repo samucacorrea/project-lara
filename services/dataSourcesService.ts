@@ -110,3 +110,15 @@ export async function updateColumnsForDataSourceTable(
     label: 'UpdateColumns',
   });
 }
+
+export async function previewDataSourceColumns(payload: {
+  type: DataSource['type'];
+  config: Record<string, unknown>;
+  table?: string;
+}): Promise<ColumnPayload[]> {
+  return httpRequest<ColumnPayload[]>('/data-sources/preview-columns', {
+    method: 'POST',
+    body: JSON.stringify(payload),
+    label: 'PreviewColumns',
+  });
+}

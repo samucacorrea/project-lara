@@ -6,7 +6,7 @@ namespace ProjectLara\Validators;
 
 final class DataSourceValidator
 {
-    private const ALLOWED_TYPES = ['mysql', 'google_sheets', 'bigquery'];
+    private const ALLOWED_TYPES = ['mysql', 'google_sheets', 'bigquery', 'supabase'];
 
     /**
      * @throws \InvalidArgumentException
@@ -18,7 +18,7 @@ final class DataSourceValidator
         }
 
         if (!isset($payload['type']) || !in_array($payload['type'], self::ALLOWED_TYPES, true)) {
-            throw new \InvalidArgumentException('Tipo inválido. Use mysql, google_sheets ou bigquery.');
+            throw new \InvalidArgumentException('Tipo inválido. Use mysql, supabase, google_sheets ou bigquery.');
         }
 
         if (!isset($payload['config']) || !is_array($payload['config'])) {
@@ -32,6 +32,7 @@ final class DataSourceValidator
     {
         $requiredMap = [
             'mysql' => ['host', 'port', 'database', 'username', 'password'],
+            'supabase' => ['host', 'port', 'database', 'username', 'password'],
             'google_sheets' => ['spreadsheet_id'],
             'bigquery' => ['project_id', 'dataset', 'service_account_json'],
         ];

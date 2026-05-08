@@ -5,6 +5,7 @@ declare(strict_types=1);
 require __DIR__ . '/../bootstrap.php';
 
 use ProjectLara\Database;
+use ProjectLara\AppSettingsRepository;
 use ProjectLara\DataSourceRepository;
 use ProjectLara\DataSourceSchemaRepository;
 use ProjectLara\DashboardSettingsRepository;
@@ -44,6 +45,7 @@ $googleSheetsService = new GoogleSheetsService();
 $bigQueryService = new BigQueryService();
 $inspector = new DataSourceInspector($repository, $googleSheetsService, $bigQueryService);
 $dashboardRepository = new DashboardSettingsRepository($connection);
+$appSettingsRepository = new AppSettingsRepository($connection);
 $reportRepository = new ReportRepository($connection);
 $calculatedMetricRepository = new CalculatedMetricRepository($connection);
 $userRepository = new UserRepository($connection);
@@ -279,6 +281,81 @@ try {
         exit;
     }
 
+    if ($resource === 'app-settings') {
+        if ($resourceId === null && $method === 'GET') {
+            echo json_encode($appSettingsRepository->get(), JSON_THROW_ON_ERROR);
+            exit;
+        }
+
+        $requireAuth(['admin']);
+
+        if ($resourceId === null && $method === 'PUT') {
+            $body = file_get_contents('php://input');
+            $payload = json_decode($body ?: '{}', true, 512, JSON_THROW_ON_ERROR);
+            $updated = $appSettingsRepository->update($payload);
+            echo json_encode($updated, JSON_THROW_ON_ERROR);
+            exit;
+        }
+
+        if (($segments[1] ?? null) === 'assets' && $method === 'POST') {
+            $kind = strtolower(trim((string) ($_POST['kind'] ?? '')));
+            if (!in_array($kind, ['logo', 'favicon'], true)) {
+                http_response_code(422);
+                echo json_encode(['error' => 'validation_error', 'message' => 'Tipo de asset inválido.']);
+                exit;
+            }
+
+            if (!isset($_FILES['file']) || !is_uploaded_file($_FILES['file']['tmp_name'])) {
+                http_response_code(422);
+                echo json_encode(['error' => 'validation_error', 'message' => 'Arquivo não enviado.']);
+                exit;
+            }
+
+            $file = $_FILES['file'];
+            if (($file['error'] ?? UPLOAD_ERR_OK) !== UPLOAD_ERR_OK) {
+                http_response_code(422);
+                echo json_encode(['error' => 'validation_error', 'message' => 'Falha ao enviar arquivo.']);
+                exit;
+            }
+
+            $extension = strtolower(pathinfo((string) $file['name'], PATHINFO_EXTENSION) ?: 'png');
+            $allowed = $kind === 'favicon'
+                ? ['png', 'ico', 'svg']
+                : ['png', 'jpg', 'jpeg', 'svg', 'webp'];
+
+            if (!in_array($extension, $allowed, true)) {
+                http_response_code(422);
+                echo json_encode(['error' => 'validation_error', 'message' => 'Formato inválido para este asset.']);
+                exit;
+            }
+
+            $uploadsDir = __DIR__ . '/uploads/branding';
+            if (!is_dir($uploadsDir)) {
+                mkdir($uploadsDir, 0755, true);
+            }
+
+            $filename = sprintf('%s_%s.%s', $kind, bin2hex(random_bytes(6)), $extension);
+            $destination = $uploadsDir . '/' . $filename;
+            if (!move_uploaded_file($file['tmp_name'], $destination)) {
+                http_response_code(500);
+                echo json_encode(['error' => 'upload_failed', 'message' => 'Não foi possível salvar o arquivo.']);
+                exit;
+            }
+
+            $scheme = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') ? 'https' : 'http';
+            $host = $_SERVER['HTTP_HOST'] ?? 'localhost';
+            $assetUrl = sprintf('%s://%s/uploads/branding/%s', $scheme, $host, $filename);
+            $field = $kind === 'logo' ? 'logo_url' : 'favicon_url';
+            $updated = $appSettingsRepository->update([$field => $assetUrl]);
+            echo json_encode(['url' => $assetUrl, 'settings' => $updated], JSON_THROW_ON_ERROR);
+            exit;
+        }
+
+        http_response_code(405);
+        echo json_encode(['error' => 'method_not_allowed']);
+        exit;
+    }
+
     if ($resource === 'users') {
         $authUser = $requireAuth(['admin']);
         $userId = $segments[1] ?? null;
@@ -328,6 +405,21 @@ try {
     if ($resource === 'data-sources') {
         $authUser = $requireAuth(['admin', 'standard']);
         if ($resourceId === null) {
+            $subResource = $segments[1] ?? null;
+            if ($subResource === 'preview-columns') {
+                if ($method !== 'POST') {
+                    http_response_code(405);
+                    echo json_encode(['error' => 'method_not_allowed']);
+                    exit;
+                }
+
+                $body = file_get_contents('php://input');
+                $payload = json_decode($body ?: '{}', true, 512, JSON_THROW_ON_ERROR);
+                $columns = $inspector->previewColumns($payload);
+                echo json_encode($columns, JSON_THROW_ON_ERROR);
+                exit;
+            }
+
             if ($method === 'GET') {
                 $cacheKey = 'data_sources:list';
                 $ttl = $cacheTtl('DATA_SOURCES_CACHE_TTL', 600);

@@ -58,11 +58,20 @@ export interface JoinConfig {
   }>;
 }
 
-export type DataSourceType = 'mysql' | 'google_sheets' | 'bigquery';
+export type DataSourceType = 'mysql' | 'google_sheets' | 'bigquery' | 'supabase';
 
 export type DataSourceStatus = 'draft' | 'active' | 'inactive';
 
 export type UserRole = 'admin' | 'standard' | 'viewer';
+
+export type RolePermissionKey =
+  | 'dashboard_list'
+  | 'dashboard_create'
+  | 'builder'
+  | 'constructor'
+  | 'manage_data_sources'
+  | 'manage_schema'
+  | 'admin_settings';
 
 export interface User {
   id: number;
@@ -71,6 +80,18 @@ export interface User {
   role: UserRole;
   phone?: string | null;
   avatar_url?: string | null;
+  created_at?: string;
+  updated_at?: string;
+}
+
+export type RolePermissions = Record<UserRole, Record<RolePermissionKey, boolean>>;
+
+export interface AppSettings {
+  id?: number;
+  tool_name: string;
+  logo_url?: string | null;
+  favicon_url?: string | null;
+  role_permissions: RolePermissions;
   created_at?: string;
   updated_at?: string;
 }

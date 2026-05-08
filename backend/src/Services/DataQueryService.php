@@ -64,7 +64,7 @@ final class DataQueryService
                 'dimension' => $this->runGoogleDimensionQuery($dataSource, $payload),
                 default => $this->runGoogleSeriesQuery($dataSource, $payload),
             },
-            'mysql' => match ($mode) {
+            'mysql', 'supabase' => match ($mode) {
                 'table' => $this->runSqlTableQuery($dataSource, $payload),
                 'dimension' => $this->runSqlDimensionQuery($dataSource, $payload),
                 default => $this->runSqlSeriesQuery($dataSource, $payload),
@@ -391,7 +391,7 @@ final class DataQueryService
 
     private function runSqlSeriesQuery(array $dataSource, array $payload): array
     {
-        [$pdo, $table, $columnMap] = $this->bootstrapSql($dataSource, $payload);
+        [$pdo, $table, $columnMap, $dialect, $schema] = $this->bootstrapSql($dataSource, $payload);
 
         $dimension = isset($payload['dimension']) ? (string) $payload['dimension'] : '';
         $metric = (string) ($payload['metric'] ?? '');
@@ -406,24 +406,25 @@ final class DataQueryService
         $resolvedMetricY = $metricY ? $this->matchColumn($metricY, $columnMap) : null;
 
         $selects = [
-            $resolvedDimension ? sprintf('`%s` AS label', $resolvedDimension) : "'Total' AS label",
-            sprintf('SUM(`%s`) AS value', $resolvedMetric),
+            $resolvedDimension ? sprintf('%s AS label', $this->quoteSqlIdentifier($resolvedDimension, $dialect)) : "'Total' AS label",
+            sprintf('SUM(%s) AS value', $this->quoteSqlIdentifier($resolvedMetric, $dialect)),
         ];
 
         if ($resolvedMetricY) {
-            $selects[] = sprintf('SUM(`%s`) AS valueY', $resolvedMetricY);
+            $selects[] = sprintf('SUM(%s) AS valueY', $this->quoteSqlIdentifier($resolvedMetricY, $dialect));
         }
 
-        $sql = sprintf('SELECT %s FROM `%s` WHERE 1=1', implode(', ', $selects), $table);
-        [$conditions, $params] = $this->buildDateConditions($payload, $columnMap, $dimension);
-        $this->applyDimensionFilter($payload, $columnMap, $conditions, $params);
+        $sql = sprintf('SELECT %s FROM %s WHERE 1=1', implode(', ', $selects), $this->qualifySqlTable($table, $schema, $dialect));
+        [$conditions, $params] = $this->buildDateConditions($payload, $columnMap, $dimension, $dialect);
+        $this->applyDimensionFilter($payload, $columnMap, $conditions, $params, $dialect);
 
         if (!empty($conditions)) {
             $sql .= ' AND ' . implode(' AND ', $conditions);
         }
 
         if ($resolvedDimension) {
-            $sql .= sprintf(' GROUP BY `%s` ORDER BY `%s`', $resolvedDimension, $resolvedDimension);
+            $identifier = $this->quoteSqlIdentifier($resolvedDimension, $dialect);
+            $sql .= sprintf(' GROUP BY %s ORDER BY %s', $identifier, $identifier);
         }
 
         $stmt = $pdo->prepare($sql);
@@ -443,7 +444,7 @@ final class DataQueryService
 
     private function runSqlDimensionQuery(array $dataSource, array $payload): array
     {
-        [$pdo, $table, $columnMap] = $this->bootstrapSql($dataSource, $payload);
+        [$pdo, $table, $columnMap, $dialect, $schema] = $this->bootstrapSql($dataSource, $payload);
 
         $dimension = isset($payload['dimension']) ? (string) $payload['dimension'] : '';
         if ($dimension === '') {
@@ -452,12 +453,13 @@ final class DataQueryService
 
         $resolvedDimension = $this->matchColumn($dimension, $columnMap);
 
-        $labelExpr = sprintf("COALESCE(NULLIF(TRIM(`%s`), ''), 'Sem valor')", $resolvedDimension);
-        $sql = sprintf('SELECT DISTINCT %s AS label FROM `%s` WHERE 1=1', $labelExpr, $table);
-        [$conditions, $params] = $this->buildDateConditions($payload, $columnMap, $dimension);
+        $identifier = $this->quoteSqlIdentifier($resolvedDimension, $dialect);
+        $labelExpr = sprintf("COALESCE(NULLIF(TRIM(%s), ''), 'Sem valor')", $identifier);
+        $sql = sprintf('SELECT DISTINCT %s AS label FROM %s WHERE 1=1', $labelExpr, $this->qualifySqlTable($table, $schema, $dialect));
+        [$conditions, $params] = $this->buildDateConditions($payload, $columnMap, $dimension, $dialect);
 
         $filterPayload = $this->sanitizeDimensionFilterPayload($payload, $dimension);
-        $this->applyDimensionFilter($filterPayload, $columnMap, $conditions, $params);
+        $this->applyDimensionFilter($filterPayload, $columnMap, $conditions, $params, $dialect);
 
         if ($conditions !== []) {
             $sql .= ' AND ' . implode(' AND ', $conditions);
@@ -485,7 +487,7 @@ final class DataQueryService
 
     private function runSqlTableQuery(array $dataSource, array $payload): array
     {
-        [$pdo, $table, $columnMap] = $this->bootstrapSql($dataSource, $payload);
+        [$pdo, $table, $columnMap, $dialect, $schema] = $this->bootstrapSql($dataSource, $payload);
 
         $dimensions = $this->normalizeList($payload['dimensions'] ?? [], 3);
         $metrics = $this->normalizeList($payload['metrics'] ?? [], 10);
@@ -512,26 +514,26 @@ final class DataQueryService
         foreach ($resolvedDimensions as $index => $column) {
             $alias = sprintf('dim_%d', $index);
             $dimensionAliases[] = $alias;
-            $selects[] = sprintf('`%s` AS %s', $column, $alias);
+            $selects[] = sprintf('%s AS %s', $this->quoteSqlIdentifier($column, $dialect), $alias);
         }
 
         $metricAliases = [];
         foreach ($resolvedMetrics as $index => $column) {
             $alias = sprintf('metric_%d', $index);
             $metricAliases[] = $alias;
-            $selects[] = sprintf('COALESCE(SUM(`%s`), 0) AS %s', $column, $alias);
+            $selects[] = sprintf('COALESCE(SUM(%s), 0) AS %s', $this->quoteSqlIdentifier($column, $dialect), $alias);
         }
 
-        $sql = sprintf('SELECT %s FROM `%s` WHERE 1=1', implode(', ', $selects), $table);
-        [$conditions, $params] = $this->buildDateConditions($payload, $columnMap, $dimensions[0] ?? null);
-        $this->applyDimensionFilter($payload, $columnMap, $conditions, $params);
+        $sql = sprintf('SELECT %s FROM %s WHERE 1=1', implode(', ', $selects), $this->qualifySqlTable($table, $schema, $dialect));
+        [$conditions, $params] = $this->buildDateConditions($payload, $columnMap, $dimensions[0] ?? null, $dialect);
+        $this->applyDimensionFilter($payload, $columnMap, $conditions, $params, $dialect);
 
         if (!empty($conditions)) {
             $sql .= ' AND ' . implode(' AND ', $conditions);
         }
 
         if ($resolvedDimensions !== []) {
-            $groupBy = array_map(static fn (string $column): string => sprintf('`%s`', $column), $resolvedDimensions);
+            $groupBy = array_map(fn (string $column): string => $this->quoteSqlIdentifier($column, $dialect), $resolvedDimensions);
             $sql .= ' GROUP BY ' . implode(', ', $groupBy);
         }
 
@@ -618,10 +620,16 @@ final class DataQueryService
                 ];
             }
 
-            $aggregated[$label]['value'] += $this->parseNumericValue($row[$resolvedMetric] ?? null);
+            $aggregated[$label]['value'] += $this->parseNumericValue(
+                $row[$resolvedMetric] ?? null,
+                $columnMap[strtolower($resolvedMetric)]['type'] ?? null
+            );
 
             if ($resolvedMetricY) {
-                $aggregated[$label]['valueY'] += $this->parseNumericValue($row[$resolvedMetricY] ?? null);
+                $aggregated[$label]['valueY'] += $this->parseNumericValue(
+                    $row[$resolvedMetricY] ?? null,
+                    $columnMap[strtolower($resolvedMetricY)]['type'] ?? null
+                );
             }
         }
 
@@ -698,7 +706,10 @@ final class DataQueryService
             }
 
             foreach ($resolvedMetrics as $index => $metricName) {
-                $groups[$groupKey]['metrics'][$index] += $this->parseNumericValue($row[$metricName] ?? null);
+                $groups[$groupKey]['metrics'][$index] += $this->parseNumericValue(
+                    $row[$metricName] ?? null,
+                    $columnMap[strtolower($metricName)]['type'] ?? null
+                );
             }
         }
 
@@ -987,7 +998,7 @@ final class DataQueryService
     }
 
     /**
-     * @return array{0: PDO, 1: string, 2: array<string, array{name: string, type: string}>}
+     * @return array{0: PDO, 1: string, 2: array<string, array{name: string, type: string}>, 3: string, 4: string}
      */
     private function bootstrapSql(array $dataSource, array $payload): array
     {
@@ -997,6 +1008,11 @@ final class DataQueryService
         }
 
         $pdo = $this->inspector->createConnection($dataSource);
+        $sourceType = (string) ($dataSource['type'] ?? 'mysql');
+        $dialect = $sourceType === 'supabase' ? 'pgsql' : 'mysql';
+        $schema = $sourceType === 'supabase'
+            ? (trim((string) (($dataSource['config']['schema'] ?? ''))) ?: 'public')
+            : '';
         $sourceId = isset($dataSource['id']) ? (int) $dataSource['id'] : (int) ($payload['data_source_id'] ?? 0);
 
         $columns = $this->inspector->listColumns($sourceId, $table);
@@ -1008,13 +1024,13 @@ final class DataQueryService
             ];
         }
 
-        return [$pdo, $table, $columnMap];
+        return [$pdo, $table, $columnMap, $dialect, $schema];
     }
 
     /**
      * @return array{0: array<int, string>, 1: array<string, string>}
      */
-    private function buildDateConditions(array $payload, array $columnMap, ?string $fallbackColumn): array
+    private function buildDateConditions(array $payload, array $columnMap, ?string $fallbackColumn, string $dialect): array
     {
         $conditions = [];
         $params = [];
@@ -1032,16 +1048,11 @@ final class DataQueryService
 
         if ($dateColumn && $dateRange && isset($dateRange['start'], $dateRange['end'])) {
             if ($this->isDateType($dateType)) {
-                $conditions[] = sprintf('`%s` BETWEEN :start AND :end', $dateColumn);
+                $conditions[] = sprintf('%s BETWEEN :start AND :end', $this->quoteSqlIdentifier($dateColumn, $dialect));
                 $params[':start'] = $dateRange['start'];
                 $params[':end'] = $dateRange['end'];
             } else {
-                $format = $requestedFormat ?: '%c/%e/%y';
-                $conditions[] = sprintf(
-                    'STR_TO_DATE(`%s`, \'%s\') BETWEEN :start AND :end',
-                    $dateColumn,
-                    $format
-                );
+                $conditions[] = sprintf('%s BETWEEN :start AND :end', $this->buildSqlDateParseExpression($dateColumn, $requestedFormat, $dialect));
                 $params[':start'] = $dateRange['start'];
                 $params[':end'] = $dateRange['end'];
             }
@@ -1050,7 +1061,7 @@ final class DataQueryService
         return [$conditions, $params];
     }
 
-    private function applyDimensionFilter(array $payload, array $columnMap, array &$conditions, array &$params): void
+    private function applyDimensionFilter(array $payload, array $columnMap, array &$conditions, array &$params, string $dialect): void
     {
         $filter = $payload['dimension_filter'] ?? null;
         if (!is_array($filter)) {
@@ -1080,7 +1091,7 @@ final class DataQueryService
 
         if (count($values) === 1) {
             $paramKey = ':dimension_' . count($params);
-            $conditions[] = sprintf('`%s` = %s', $column, $paramKey);
+            $conditions[] = sprintf('%s = %s', $this->quoteSqlIdentifier($column, $dialect), $paramKey);
             $params[$paramKey] = $values[0];
             return;
         }
@@ -1092,7 +1103,7 @@ final class DataQueryService
             $params[$paramKey] = $item;
         }
 
-        $conditions[] = sprintf('`%s` IN (%s)', $column, implode(', ', $placeholders));
+        $conditions[] = sprintf('%s IN (%s)', $this->quoteSqlIdentifier($column, $dialect), implode(', ', $placeholders));
     }
 
     /**
@@ -1147,12 +1158,14 @@ final class DataQueryService
         $sheet = $this->sheetsService->fetch($config);
         $rows = $sheet['rows'];
         $columns = [];
+        $typeOverrides = $this->resolveGoogleColumnTypeOverrides($config, $worksheet);
 
         foreach ($sheet['headers'] as $header) {
             $lower = strtolower($header);
+            $resolvedType = $typeOverrides[$lower] ?? $this->guessGoogleType($header, $rows);
             $columns[$lower] = [
                 'name' => $header,
-                'type' => $this->guessGoogleType($header, $rows),
+                'type' => $resolvedType,
             ];
         }
 
@@ -1194,6 +1207,34 @@ final class DataQueryService
         }
 
         return 'string';
+    }
+
+    /**
+     * @return array<string, string>
+     */
+    private function resolveGoogleColumnTypeOverrides(array $config, string $worksheet): array
+    {
+        $all = $config['column_types'] ?? null;
+        if (!is_array($all) || !isset($all[$worksheet]) || !is_array($all[$worksheet])) {
+            return [];
+        }
+
+        $normalized = [];
+        foreach ($all[$worksheet] as $column => $type) {
+            if (!is_string($column) || !is_string($type)) {
+                continue;
+            }
+
+            $columnName = trim($column);
+            $columnType = strtolower(trim($type));
+            if ($columnName === '' || $columnType === '') {
+                continue;
+            }
+
+            $normalized[strtolower($columnName)] = $columnType;
+        }
+
+        return $normalized;
     }
 
     private function resolveDateColumn(array $columnMap, ?string $preferred, ?string $fallback): ?string
@@ -1348,7 +1389,7 @@ final class DataQueryService
         return null;
     }
 
-    private function parseNumericValue($value): float
+    private function parseNumericValue($value, ?string $declaredType = null): float
     {
         if ($value === null) {
             return 0.0;
@@ -1357,6 +1398,12 @@ final class DataQueryService
         $stringValue = trim((string) $value);
         if ($stringValue === '') {
             return 0.0;
+        }
+
+        $normalizedType = strtolower(trim((string) $declaredType));
+        if (in_array($normalizedType, ['boolean', 'bool'], true)) {
+            $boolValue = strtolower($stringValue);
+            return in_array($boolValue, ['1', 'true', 'yes', 'sim'], true) ? 1.0 : 0.0;
         }
 
         $normalized = str_replace(["\u{00A0}", ' '], '', $stringValue);
@@ -1390,11 +1437,27 @@ final class DataQueryService
                 $normalized = str_replace(',', '', $normalized);
             }
         } elseif (substr_count($normalized, ',') === 1 && substr_count($normalized, '.') === 0) {
-            $normalized = str_replace(',', '.', $normalized);
+            $commaPos = strrpos($normalized, ',');
+            $digitsAfterComma = $commaPos === false ? 0 : strlen($normalized) - $commaPos - 1;
+            if (in_array($normalizedType, ['int', 'integer', 'bigint'], true) && $digitsAfterComma === 3) {
+                $normalized = str_replace(',', '', $normalized);
+            } else {
+                $normalized = str_replace(',', '.', $normalized);
+            }
         } elseif (substr_count($normalized, '.') > 1 && substr_count($normalized, ',') === 0) {
             $normalized = str_replace('.', '', $normalized);
         } elseif (substr_count($normalized, ',') > 1 && substr_count($normalized, '.') === 0) {
             $normalized = str_replace(',', '', $normalized);
+        } elseif (
+            substr_count($normalized, '.') === 1 &&
+            substr_count($normalized, ',') === 0 &&
+            in_array($normalizedType, ['int', 'integer', 'bigint'], true)
+        ) {
+            $dotPos = strrpos($normalized, '.');
+            $digitsAfterDot = $dotPos === false ? 0 : strlen($normalized) - $dotPos - 1;
+            if ($digitsAfterDot === 3) {
+                $normalized = str_replace('.', '', $normalized);
+            }
         }
 
         if (!is_numeric($normalized)) {
@@ -1416,6 +1479,53 @@ final class DataQueryService
 
     private function isDateType(string $type): bool
     {
-        return in_array($type, ['date', 'datetime', 'timestamp'], true);
+        return in_array($type, ['date', 'datetime', 'timestamp', 'timestamptz'], true);
+    }
+
+    private function quoteSqlIdentifier(string $identifier, string $dialect): string
+    {
+        $trimmed = trim($identifier);
+        if ($trimmed === '' || !preg_match('/^[A-Za-z_][A-Za-z0-9_]*$/', $trimmed)) {
+            throw new InvalidArgumentException(sprintf('Identificador SQL inválido: %s', $identifier));
+        }
+
+        return $dialect === 'pgsql'
+            ? sprintf('"%s"', $trimmed)
+            : sprintf('`%s`', $trimmed);
+    }
+
+    private function qualifySqlTable(string $table, string $schema, string $dialect): string
+    {
+        $quotedTable = $this->quoteSqlIdentifier($table, $dialect);
+        if ($dialect !== 'pgsql') {
+            return $quotedTable;
+        }
+
+        $schemaName = trim($schema) !== '' ? $schema : 'public';
+        return sprintf('%s.%s', $this->quoteSqlIdentifier($schemaName, $dialect), $quotedTable);
+    }
+
+    private function buildSqlDateParseExpression(string $column, ?string $requestedFormat, string $dialect): string
+    {
+        $identifier = $this->quoteSqlIdentifier($column, $dialect);
+        if ($dialect === 'pgsql') {
+            return sprintf("TO_DATE(%s, '%s')", $identifier, $this->convertToPostgresDateFormat($requestedFormat));
+        }
+
+        $format = $requestedFormat ?: '%c/%e/%y';
+        return sprintf("STR_TO_DATE(%s, '%s')", $identifier, $format);
+    }
+
+    private function convertToPostgresDateFormat(?string $format): string
+    {
+        $value = $format ? trim($format) : '';
+        return match ($value) {
+            '%Y-%m-%d' => 'YYYY-MM-DD',
+            '%d/%m/%Y' => 'DD/MM/YYYY',
+            '%m/%d/%Y' => 'MM/DD/YYYY',
+            '%d/%m/%y' => 'DD/MM/YY',
+            '%m/%d/%y' => 'MM/DD/YY',
+            default => 'MM/DD/YY',
+        };
     }
 }

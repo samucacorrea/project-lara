@@ -25,6 +25,7 @@ final class DataSourceInspector
     public function listTables(int $dataSourceId): array
     {
         $dataSource = $this->loadDataSource($dataSourceId);
+        $type = (string) ($dataSource['type'] ?? '');
         if (($dataSource['type'] ?? '') === 'google_sheets') {
             $config = $dataSource['config'] ?? [];
             $worksheets = $config['worksheets'] ?? [];
@@ -55,6 +56,25 @@ final class DataSourceInspector
 
         $pdo = $this->createConnection($dataSource);
 
+        if ($type === 'supabase') {
+            $schema = $this->resolveSchema($dataSource);
+            $sql = <<<'SQL'
+                SELECT table_name
+                  FROM information_schema.tables
+                 WHERE table_schema = :schema
+                   AND table_type = 'BASE TABLE'
+                 ORDER BY table_name
+            SQL;
+
+            $statement = $pdo->prepare($sql);
+            $statement->execute([':schema' => $schema]);
+
+            return array_map(
+                static fn (array $row): array => ['name' => $row['table_name']],
+                $statement->fetchAll(PDO::FETCH_ASSOC)
+            );
+        }
+
         $database = $this->requireConfig($dataSource, 'database');
 
         $sql = <<<'SQL'
@@ -79,6 +99,7 @@ final class DataSourceInspector
     public function listColumns(int $dataSourceId, string $tableName): array
     {
         $dataSource = $this->loadDataSource($dataSourceId);
+        $type = (string) ($dataSource['type'] ?? '');
         if (($dataSource['type'] ?? '') === 'google_sheets') {
             $config = $dataSource['config'] ?? [];
             if ($tableName !== '' && $tableName !== ($config['worksheet'] ?? '')) {
@@ -104,7 +125,8 @@ final class DataSourceInspector
                 throw new InvalidArgumentException('Falha ao acessar o Google Sheets. Confira se a planilha está pública e tente novamente.');
             }
 
-            return $this->mapGoogleColumns($sheet['headers'], $sheet['rows']);
+            $overrides = $this->resolveGoogleColumnTypeOverrides($config, $config['worksheet'] ?? $tableName);
+            return $this->mapGoogleColumns($sheet['headers'], $sheet['rows'], $overrides);
         }
 
         if (($dataSource['type'] ?? '') === 'bigquery') {
@@ -122,6 +144,32 @@ final class DataSourceInspector
         }
 
         $pdo = $this->createConnection($dataSource);
+
+        if ($type === 'supabase') {
+            $schema = $this->resolveSchema($dataSource);
+            $sql = <<<'SQL'
+                SELECT column_name, data_type
+                  FROM information_schema.columns
+                 WHERE table_schema = :schema
+                   AND table_name = :table
+                 ORDER BY ordinal_position
+            SQL;
+
+            $statement = $pdo->prepare($sql);
+            $statement->execute([
+                ':schema' => $schema,
+                ':table' => $tableName,
+            ]);
+
+            return array_map(
+                static fn (array $row): array => [
+                    'name' => $row['column_name'],
+                    'type' => $row['data_type'],
+                ],
+                $statement->fetchAll(PDO::FETCH_ASSOC)
+            );
+        }
+
         $database = $this->requireConfig($dataSource, 'database');
 
         $sql = <<<'SQL'
@@ -147,6 +195,34 @@ final class DataSourceInspector
         );
     }
 
+    /**
+     * @return array<int, array{name: string, type: string}>
+     */
+    public function previewColumns(array $payload): array
+    {
+        $type = (string) ($payload['type'] ?? '');
+        $config = $payload['config'] ?? [];
+        $table = isset($payload['table']) ? trim((string) $payload['table']) : '';
+
+        if (!is_array($config)) {
+            throw new InvalidArgumentException('Configuração inválida para inspeção.');
+        }
+
+        if ($type !== 'google_sheets') {
+            throw new InvalidArgumentException('Pré-visualização suportada apenas para Google Sheets neste momento.');
+        }
+
+        if ($table !== '') {
+            $config['worksheet'] = $table;
+        }
+
+        $sheet = $this->sheetsService->fetch($config, 50);
+        $worksheet = (string) ($config['worksheet'] ?? $table);
+        $overrides = $this->resolveGoogleColumnTypeOverrides($config, $worksheet);
+
+        return $this->mapGoogleColumns($sheet['headers'], $sheet['rows'], $overrides);
+    }
+
     private function loadDataSource(int $dataSourceId): array
     {
         $dataSource = $this->repository->find($dataSourceId);
@@ -159,8 +235,9 @@ final class DataSourceInspector
 
     public function createConnection(array $dataSource): PDO
     {
-        if (($dataSource['type'] ?? '') !== 'mysql') {
-            throw new InvalidArgumentException('Apenas fontes MySQL possuem exploração de schema neste momento.');
+        $type = (string) ($dataSource['type'] ?? '');
+        if (!in_array($type, ['mysql', 'supabase'], true)) {
+            throw new InvalidArgumentException('Apenas fontes MySQL e Supabase possuem exploração de schema neste momento.');
         }
 
         $config = $dataSource['config'] ?? [];
@@ -175,9 +252,14 @@ final class DataSourceInspector
         $database = (string) $config['database'];
         $username = (string) $config['username'];
         $password = (string) $config['password'];
-        $port = isset($config['port']) ? (int) $config['port'] : 3306;
-
-        $dsn = sprintf('mysql:host=%s;port=%d;dbname=%s;charset=utf8mb4', $host, $port, $database);
+        if ($type === 'supabase') {
+            $port = isset($config['port']) ? (int) $config['port'] : 5432;
+            $sslmode = isset($config['sslmode']) && $config['sslmode'] !== '' ? (string) $config['sslmode'] : 'require';
+            $dsn = sprintf('pgsql:host=%s;port=%d;dbname=%s;sslmode=%s', $host, $port, $database, $sslmode);
+        } else {
+            $port = isset($config['port']) ? (int) $config['port'] : 3306;
+            $dsn = sprintf('mysql:host=%s;port=%d;dbname=%s;charset=utf8mb4', $host, $port, $database);
+        }
 
         try {
             return new PDO(
@@ -196,6 +278,13 @@ final class DataSourceInspector
         }
     }
 
+    private function resolveSchema(array $dataSource): string
+    {
+        $config = $dataSource['config'] ?? [];
+        $schema = isset($config['schema']) ? trim((string) $config['schema']) : '';
+        return $schema !== '' ? $schema : 'public';
+    }
+
     private function requireConfig(array $dataSource, string $field): string
     {
         $config = $dataSource['config'] ?? [];
@@ -209,17 +298,44 @@ final class DataSourceInspector
     /**
      * @return array<int, array{name: string, type: string}>
      */
-    private function mapGoogleColumns(array $headers, array $rows): array
+    private function mapGoogleColumns(array $headers, array $rows, array $overrides = []): array
     {
         $columns = [];
         foreach ($headers as $header) {
+            $override = $overrides[strtolower($header)] ?? null;
             $columns[] = [
                 'name' => $header,
-                'type' => $this->guessGoogleType($header, $rows),
+                'type' => is_string($override) && $override !== '' ? strtolower($override) : $this->guessGoogleType($header, $rows),
             ];
         }
 
         return $columns;
+    }
+
+    /**
+     * @return array<string, string>
+     */
+    private function resolveGoogleColumnTypeOverrides(array $config, string $worksheet): array
+    {
+        $all = $config['column_types'] ?? null;
+        if (!is_array($all) || $worksheet === '') {
+            return [];
+        }
+
+        $sheetMap = $all[$worksheet] ?? null;
+        if (!is_array($sheetMap)) {
+            return [];
+        }
+
+        $normalized = [];
+        foreach ($sheetMap as $column => $type) {
+            if (!is_string($column) || !is_string($type) || trim($column) === '' || trim($type) === '') {
+                continue;
+            }
+            $normalized[strtolower($column)] = strtolower(trim($type));
+        }
+
+        return $normalized;
     }
 
     private function guessGoogleType(string $column, array $rows): string

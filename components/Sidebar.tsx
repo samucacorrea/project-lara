@@ -12,7 +12,7 @@ import {
   LayoutDashboard,
   Settings
 } from 'lucide-react';
-import { WidgetType } from '../types';
+import { UserRole, WidgetType } from '../types';
 
 interface SidebarProps {
   onAddWidget: (type: WidgetType) => void;
@@ -52,24 +52,52 @@ const MOCK_MENU = [
   { label: 'Construtor', icon: Filter, view: 'extractor' },
 ];
 
-export const Sidebar: React.FC<SidebarProps & { activeView?: 'list' | 'builder' | 'extractor'; onNavigateView?: (view: 'list' | 'builder' | 'extractor') => void; }> = ({ onAddWidget, showMenu = true, onBack, activeView = 'list', onNavigateView, collapsed = false, onToggleCollapse }) => {
+export const Sidebar: React.FC<
+  SidebarProps & {
+    activeView?: 'list' | 'builder' | 'extractor' | 'settings' | 'admin';
+    onNavigateView?: (view: 'list' | 'builder' | 'extractor' | 'settings' | 'admin') => void;
+    toolName?: string;
+    logoUrl?: string | null;
+    userRole?: UserRole | null;
+  }
+> = ({
+  onAddWidget,
+  showMenu = true,
+  onBack,
+  activeView = 'list',
+  onNavigateView,
+  collapsed = false,
+  onToggleCollapse,
+  toolName = 'Project Lara',
+  logoUrl,
+  userRole,
+}) => {
   const handleDragStart = (e: React.DragEvent, type: WidgetType) => {
     e.dataTransfer.setData('widgetType', type);
     e.dataTransfer.effectAllowed = 'copy';
   };
+
+  const menuItems = userRole === 'admin'
+    ? [...MOCK_MENU, { label: 'Configurações', icon: Settings, view: 'admin' as const }]
+    : MOCK_MENU;
 
   return (
     <div className={`${collapsed ? 'w-20' : 'w-64'} bg-white flex flex-col h-full shadow-sm z-30 transition-all duration-300`}>
       {/* Sidebar Header */}
       <div className="h-20 flex items-center justify-between px-6">
         {collapsed ? (
-          <div className="w-10 h-10 rounded-xl bg-[#5B4DFF]/10 flex items-center justify-center text-[#5B4DFF]">
-            <LayoutDashboard className="w-5 h-5" />
+          <div className="w-10 h-10 rounded-xl bg-[#5B4DFF]/10 overflow-hidden flex items-center justify-center text-[#5B4DFF]">
+            {logoUrl ? <img src={logoUrl} alt={toolName} className="w-full h-full object-contain" /> : <LayoutDashboard className="w-5 h-5" />}
           </div>
         ) : (
-          <h1 className="text-xl font-bold tracking-tight text-slate-800">
-            Project <span className="text-[#5B4DFF]">Lara</span>
-          </h1>
+          <div className="flex items-center gap-3 min-w-0">
+            <div className="w-10 h-10 rounded-xl bg-[#5B4DFF]/10 overflow-hidden flex items-center justify-center text-[#5B4DFF] shrink-0">
+              {logoUrl ? <img src={logoUrl} alt={toolName} className="w-full h-full object-contain" /> : <LayoutDashboard className="w-5 h-5" />}
+            </div>
+            <h1 className="text-xl font-bold tracking-tight text-slate-800 truncate">
+              {toolName}
+            </h1>
+          </div>
         )}
         {onToggleCollapse && (
           <button
@@ -85,10 +113,10 @@ export const Sidebar: React.FC<SidebarProps & { activeView?: 'list' | 'builder' 
       {showMenu && (
         <>
           <div className="px-4 mb-8 space-y-1">
-            {MOCK_MENU.map((item) => (
+            {menuItems.map((item) => (
               <div 
                 key={item.label}
-                onClick={() => onNavigateView?.(item.view as 'list' | 'builder' | 'extractor')}
+                onClick={() => onNavigateView?.(item.view)}
                 className={`flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium cursor-pointer transition-colors ${
                   activeView === item.view 
                     ? 'bg-[#F3F4F8] text-[#5B4DFF]' 

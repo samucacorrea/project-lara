@@ -1,7 +1,12 @@
 import React, { useState } from 'react';
 import { useAuth } from './AuthProvider';
 
-export const LoginView: React.FC = () => {
+interface LoginViewProps {
+  toolName?: string;
+  logoUrl?: string | null;
+}
+
+export const LoginView: React.FC<LoginViewProps> = ({ toolName = 'Project Lara', logoUrl }) => {
   const { login } = useAuth();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -26,7 +31,12 @@ export const LoginView: React.FC = () => {
     <div className="h-screen w-screen bg-[#0f172a] flex items-center justify-center px-4">
       <div className="bg-white rounded-3xl shadow-2xl w-full max-w-md p-10 space-y-6">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900">Project Lara</h1>
+          <div className="flex items-center gap-3 mb-2">
+            <div className="w-12 h-12 rounded-2xl bg-[#5B4DFF]/10 overflow-hidden flex items-center justify-center">
+              {logoUrl ? <img src={logoUrl} alt={toolName} className="w-full h-full object-contain" /> : <span className="text-[#5B4DFF] font-bold">PL</span>}
+            </div>
+            <h1 className="text-2xl font-bold text-gray-900">{toolName}</h1>
+          </div>
           <p className="text-sm text-gray-500">Faça login para continuar construindo dashboards.</p>
         </div>
         <form className="space-y-4" onSubmit={handleSubmit}>
