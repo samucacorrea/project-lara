@@ -145,6 +145,15 @@ try {
         ], JSON_THROW_ON_ERROR);
         exit;
     }
+    if ($resource === 'env-test') {
+        echo json_encode([
+            'DB_HOST' => getenv('DB_HOST'),
+            'REDIS_HOST' => getenv('REDIS_HOST'),
+            'APP_URL' => getenv('APP_URL'),
+        ]);
+
+        exit;
+    }
 
     if ($resource === 'auth') {
         $sub = $segments[1] ?? '';
