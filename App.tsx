@@ -1409,13 +1409,21 @@ function AppContent() {
         <aside className="w-64 bg-white border-r border-gray-100 flex flex-col">
           <div className="p-6 space-y-6">
             <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-xl bg-[#5B4DFF]/10 flex items-center justify-center text-[#5B4DFF]">
-                <LayoutGrid className="w-5 h-5" />
-              </div>
-              <div>
-                <p className="text-sm font-semibold text-gray-900">{appSettings.tool_name}</p>
-                <p className="text-xs text-gray-400">Painéis e relatórios</p>
-              </div>
+              {appSettings.logo_url ? (
+                <div className="max-w-[180px] h-12 flex items-center">
+                  <img src={appSettings.logo_url} alt={appSettings.tool_name} className="max-h-12 w-auto object-contain" />
+                </div>
+              ) : (
+                <>
+                  <div className="w-10 h-10 rounded-xl bg-[#5B4DFF]/10 flex items-center justify-center text-[#5B4DFF] overflow-hidden">
+                    <LayoutGrid className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <p className="text-sm font-semibold text-gray-900">{appSettings.tool_name}</p>
+                    <p className="text-xs text-gray-400">Painéis e relatórios</p>
+                  </div>
+                </>
+              )}
             </div>
 
             <div>
@@ -1675,13 +1683,21 @@ function AppContent() {
         <aside className="w-64 bg-white border-r border-gray-100 flex flex-col">
           <div className="p-6 space-y-6">
             <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-xl bg-[#5B4DFF]/10 flex items-center justify-center text-[#5B4DFF]">
-                <LayoutGrid className="w-5 h-5" />
-              </div>
-              <div>
-                <p className="text-sm font-semibold text-gray-900">{appSettings.tool_name}</p>
-                <p className="text-xs text-gray-400">Painéis e relatórios</p>
-              </div>
+              {appSettings.logo_url ? (
+                <div className="max-w-[180px] h-12 flex items-center">
+                  <img src={appSettings.logo_url} alt={appSettings.tool_name} className="max-h-12 w-auto object-contain" />
+                </div>
+              ) : (
+                <>
+                  <div className="w-10 h-10 rounded-xl bg-[#5B4DFF]/10 flex items-center justify-center text-[#5B4DFF] overflow-hidden">
+                    <LayoutGrid className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <p className="text-sm font-semibold text-gray-900">{appSettings.tool_name}</p>
+                    <p className="text-xs text-gray-400">Painéis e relatórios</p>
+                  </div>
+                </>
+              )}
             </div>
 
             <div>
@@ -1747,13 +1763,21 @@ function AppContent() {
         <aside className="w-64 bg-white border-r border-gray-100 flex flex-col">
           <div className="p-6 space-y-6">
             <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-xl bg-[#5B4DFF]/10 flex items-center justify-center text-[#5B4DFF] overflow-hidden">
-                {appSettings.logo_url ? <img src={appSettings.logo_url} alt={appSettings.tool_name} className="w-full h-full object-contain" /> : <LayoutGrid className="w-5 h-5" />}
-              </div>
-              <div>
-                <p className="text-sm font-semibold text-gray-900">{appSettings.tool_name}</p>
-                <p className="text-xs text-gray-400">Painéis e relatórios</p>
-              </div>
+              {appSettings.logo_url ? (
+                <div className="max-w-[180px] h-12 flex items-center">
+                  <img src={appSettings.logo_url} alt={appSettings.tool_name} className="max-h-12 w-auto object-contain" />
+                </div>
+              ) : (
+                <>
+                  <div className="w-10 h-10 rounded-xl bg-[#5B4DFF]/10 flex items-center justify-center text-[#5B4DFF] overflow-hidden">
+                    <LayoutGrid className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <p className="text-sm font-semibold text-gray-900">{appSettings.tool_name}</p>
+                    <p className="text-xs text-gray-400">Painéis e relatórios</p>
+                  </div>
+                </>
+              )}
             </div>
 
             <div>

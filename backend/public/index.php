@@ -136,7 +136,7 @@ $segments = array_values(
     )
 );
 $resource = $segments[0] ?? '';
-$resourceId = isset($segments[1]) ? (int) $segments[1] : null;
+$resourceId = isset($segments[1]) && ctype_digit((string) $segments[1]) ? (int) $segments[1] : null;
 $debugEnabled = project_lara_debug_enabled();
 
 try {

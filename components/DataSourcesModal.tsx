@@ -91,6 +91,7 @@ export const DataSourcesModal: React.FC<DataSourcesModalProps> = ({
   const [isResizing, setIsResizing] = useState(false);
   const [resizeStart, setResizeStart] = useState({ width: 600, height: 650, x: 0, y: 0 });
   const [showBigQueryHelp, setShowBigQueryHelp] = useState(false);
+  const [showSupabaseHelp, setShowSupabaseHelp] = useState(false);
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
   const [confirmDeleteName, setConfirmDeleteName] = useState('');
   const [confirmDeleteInput, setConfirmDeleteInput] = useState('');
@@ -181,6 +182,7 @@ export const DataSourcesModal: React.FC<DataSourcesModalProps> = ({
     setConnectionStatus('idle');
     setErrorMessage(null);
     setShowBigQueryHelp(false);
+    setShowSupabaseHelp(false);
     setGoogleSelectedWorksheet('');
     setGooglePreviewColumns({});
     setGoogleColumnsLoading(false);
@@ -731,9 +733,66 @@ export const DataSourcesModal: React.FC<DataSourcesModalProps> = ({
 
                  {selectedType === 'supabase' && (
                     <div className="pt-4 border-t border-gray-100 animate-in fade-in slide-in-from-top-2 duration-300">
-                        <h4 className="text-sm font-bold text-gray-800 mb-4 flex items-center gap-2">
-                            <Database size={16} className="text-gray-400"/> Configuração do Supabase
-                        </h4>
+                        <div className="flex items-center gap-2 justify-between mb-4">
+                          <h4 className="text-sm font-bold text-gray-800 flex items-center gap-2">
+                              <Database size={16} className="text-gray-400"/> Configuração do Supabase
+                          </h4>
+                          <button
+                            type="button"
+                            onClick={() => setShowSupabaseHelp((prev) => !prev)}
+                            className="text-xs font-semibold text-[#5B4DFF] hover:text-[#4330ff] transition-colors"
+                          >
+                            {showSupabaseHelp ? 'Ocultar passo a passo' : 'Precisa de ajuda?'}
+                          </button>
+                        </div>
+
+                        {showSupabaseHelp && (
+                          <div className="rounded-xl border border-emerald-100 bg-emerald-50/70 px-4 py-3 text-[12px] text-emerald-900 space-y-2 shadow-sm mb-4">
+                            <p className="font-semibold">Como pegar os dados no Supabase:</p>
+                            <ol className="list-decimal pl-4 space-y-1">
+                              <li>
+                                Acesse o seu projeto no{' '}
+                                <a
+                                  href="https://supabase.com/dashboard/projects"
+                                  target="_blank"
+                                  rel="noreferrer"
+                                  className="text-[#5B4DFF] underline"
+                                >
+                                  painel do Supabase
+                                </a>.
+                              </li>
+                              <li>
+                                No menu lateral, entre em <strong>Project Settings</strong> → <strong>Database</strong>.
+                              </li>
+                              <li>
+                                Em <strong>Connection string</strong> ou <strong>Connection info</strong>, copie:
+                                <br />
+                                <strong>Host</strong>: algo como <code>db.xxxxx.supabase.co</code>
+                                <br />
+                                <strong>Port</strong>: geralmente <code>5432</code>
+                                <br />
+                                <strong>Database</strong>: normalmente <code>postgres</code>
+                                <br />
+                                <strong>User</strong>: o usuário Postgres exibido pelo Supabase
+                              </li>
+                              <li>
+                                Para a <strong>senha</strong>, use a senha do banco definida no projeto. Se necessário, você pode redefini-la em{' '}
+                                <strong>Project Settings</strong> → <strong>Database</strong>.
+                              </li>
+                              <li>
+                                O <strong>Schema</strong> padrão quase sempre é <code>public</code>.
+                              </li>
+                              <li>
+                                Em <strong>SSL Mode</strong>, use <code>require</code>, que é o padrão mais comum no Supabase.
+                              </li>
+                            </ol>
+                            <p className="text-[11px] text-emerald-800">
+                              Dica: se o Supabase mostrar uma URL única de conexão, você também pode copiar os campos dela. Exemplo:
+                              <br />
+                              <code>postgresql://USER:SENHA@HOST:5432/postgres</code>
+                            </p>
+                          </div>
+                        )}
                         <div className="grid grid-cols-12 gap-4">
                             <div className="col-span-8">
                                 <label className="block text-[10px] font-bold text-gray-500 mb-1 uppercase">Host</label>
