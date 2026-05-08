@@ -1,0 +1,5 @@
+{
+  "name": "Project Lara - Dashboard Builder",
+  "description": "A drag-and-drop dashboard builder similar to Elementor, featuring data source integration (MySQL, Sheets) and public/private publishing capabilities.",
+  "requestFramePermissions": []
+}

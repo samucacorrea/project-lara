@@ -1,0 +1,10 @@
+CREATE TABLE IF NOT EXISTS `calculated_metrics` (
+  `id` BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  `name` VARCHAR(120) NOT NULL,
+  `metric_key` VARCHAR(120) NOT NULL UNIQUE,
+  `formula` TEXT NOT NULL,
+  `output_format` ENUM('number','decimal','currency','percent') NOT NULL DEFAULT 'number',
+  `created_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `updated_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
