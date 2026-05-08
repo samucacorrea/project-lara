@@ -1363,10 +1363,23 @@ final class DataQueryService
         // Remove currency symbols/letters, keep digits and separators.
         $normalized = preg_replace('/[^0-9,.\-]/', '', $normalized);
 
+        if ($normalized === '' || $normalized === '-' || $normalized === null) {
+            return 0.0;
+        }
+
         // Detect formats like 1.234,56 (pt-BR)
         if (preg_match('/^-?\d{1,3}(\.\d{3})*,\d+$/', $normalized) === 1) {
             $normalized = str_replace('.', '', $normalized);
             $normalized = str_replace(',', '.', $normalized);
+        // Detect formats like 1,234.56 (en-US)
+        } elseif (preg_match('/^-?\d{1,3}(,\d{3})*\.\d+$/', $normalized) === 1) {
+            $normalized = str_replace(',', '', $normalized);
+        // Detect integers with thousand separators only, like 5.478.406
+        } elseif (preg_match('/^-?\d{1,3}(\.\d{3})+$/', $normalized) === 1) {
+            $normalized = str_replace('.', '', $normalized);
+        // Detect integers with thousand separators only, like 5,478,406
+        } elseif (preg_match('/^-?\d{1,3}(,\d{3})+$/', $normalized) === 1) {
+            $normalized = str_replace(',', '', $normalized);
         } elseif (substr_count($normalized, '.') >= 1 && substr_count($normalized, ',') >= 1) {
             $lastComma = strrpos($normalized, ',');
             $lastDot = strrpos($normalized, '.');
@@ -1378,6 +1391,10 @@ final class DataQueryService
             }
         } elseif (substr_count($normalized, ',') === 1 && substr_count($normalized, '.') === 0) {
             $normalized = str_replace(',', '.', $normalized);
+        } elseif (substr_count($normalized, '.') > 1 && substr_count($normalized, ',') === 0) {
+            $normalized = str_replace('.', '', $normalized);
+        } elseif (substr_count($normalized, ',') > 1 && substr_count($normalized, '.') === 0) {
+            $normalized = str_replace(',', '', $normalized);
         }
 
         if (!is_numeric($normalized)) {

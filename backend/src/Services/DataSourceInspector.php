@@ -247,9 +247,31 @@ final class DataSourceInspector
     private function isNumericValue(string $value): bool
     {
         $normalized = str_replace(["\u{00A0}", ' '], '', trim($value));
-        $normalized = str_replace(',', '.', $normalized);
         if ($normalized === '') {
             return false;
+        }
+
+        $normalized = preg_replace('/[^0-9,.\-]/', '', $normalized);
+
+        if ($normalized === '' || $normalized === '-') {
+            return false;
+        }
+
+        if (preg_match('/^-?\d{1,3}(\.\d{3})*,\d+$/', $normalized) === 1) {
+            $normalized = str_replace('.', '', $normalized);
+            $normalized = str_replace(',', '.', $normalized);
+        } elseif (preg_match('/^-?\d{1,3}(,\d{3})*\.\d+$/', $normalized) === 1) {
+            $normalized = str_replace(',', '', $normalized);
+        } elseif (preg_match('/^-?\d{1,3}(\.\d{3})+$/', $normalized) === 1) {
+            $normalized = str_replace('.', '', $normalized);
+        } elseif (preg_match('/^-?\d{1,3}(,\d{3})+$/', $normalized) === 1) {
+            $normalized = str_replace(',', '', $normalized);
+        } elseif (substr_count($normalized, ',') === 1 && substr_count($normalized, '.') === 0) {
+            $normalized = str_replace(',', '.', $normalized);
+        } elseif (substr_count($normalized, '.') > 1 && substr_count($normalized, ',') === 0) {
+            $normalized = str_replace('.', '', $normalized);
+        } elseif (substr_count($normalized, ',') > 1 && substr_count($normalized, '.') === 0) {
+            $normalized = str_replace(',', '', $normalized);
         }
 
         return is_numeric($normalized);
