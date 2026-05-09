@@ -25,6 +25,14 @@ View your app in AI Studio: https://ai.studio/apps/drive/10AVRxqSu8u8_UgCw9EXk_G
 2. Execute também `backend/migrations/002_create_dashboards_table.sql`, `003_create_reports_table.sql`, `004_create_users_table.sql`, `005_add_owner_to_reports.sql` e `006_create_report_collaborators.sql` para habilitar filtros globais, permissões e links compartilháveis.
 3. Preencha as variáveis `DB_HOST`, `DB_USER`, `DB_PASSWORD`, `DB_NAME`, `DEBUG_MODE` e `APP_KEY` em [.env.local](.env.local).  
    Para o frontend, configure também `VITE_BACKEND_URL` e `VITE_DEBUG_MODE` (true/false).
+4. Para a nova camada de warehouse interno, configure também:
+   - `WAREHOUSE_HOST`
+   - `WAREHOUSE_PORT`
+   - `WAREHOUSE_DB`
+   - `WAREHOUSE_USER`
+   - `WAREHOUSE_PASSWORD`
+   - `WAREHOUSE_RAW_SCHEMA`
+   - `WAREHOUSE_DERIVED_SCHEMA`
 4. Suba o servidor embutido do PHP apontando para `backend/public`:
 
    ```bash

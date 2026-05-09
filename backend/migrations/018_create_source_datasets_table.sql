@@ -1,0 +1,22 @@
+CREATE TABLE IF NOT EXISTS `source_datasets` (
+  `id` BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  `source_kind` ENUM('data_source', 'external_connection') NOT NULL,
+  `source_ref_id` BIGINT UNSIGNED NOT NULL,
+  `account_ref_id` BIGINT UNSIGNED NULL,
+  `name` VARCHAR(255) NOT NULL,
+  `slug` VARCHAR(255) NOT NULL,
+  `dataset_type` ENUM('raw', 'normalized', 'manual', 'imported') NOT NULL DEFAULT 'raw',
+  `grain` VARCHAR(64) NULL,
+  `warehouse_schema` VARCHAR(64) NOT NULL DEFAULT 'raw',
+  `warehouse_table` VARCHAR(255) NOT NULL,
+  `primary_date_field` VARCHAR(128) NULL,
+  `status` ENUM('draft', 'ready', 'syncing', 'error', 'archived') NOT NULL DEFAULT 'ready',
+  `field_catalog_json` JSON NULL,
+  `created_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `updated_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uniq_source_datasets_slug` (`slug`),
+  UNIQUE KEY `uniq_source_datasets_warehouse` (`warehouse_schema`, `warehouse_table`),
+  KEY `idx_source_datasets_source` (`source_kind`, `source_ref_id`),
+  KEY `idx_source_datasets_account_ref` (`account_ref_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

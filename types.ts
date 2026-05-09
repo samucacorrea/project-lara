@@ -244,3 +244,133 @@ export interface CalculatedMetricPayload {
   formula: string;
   outputFormat: CalculatedMetricOutputFormat;
 }
+
+export type ExternalConnectionProvider =
+  | 'google_ads'
+  | 'meta_ads'
+  | 'tiktok_ads'
+  | 'google_analytics'
+  | 'rd_station'
+  | 'hubspot'
+  | 'magneticgo';
+
+export type ExternalConnectionAuthType = 'oauth2' | 'api_key' | 'token' | 'service_account';
+export type ExternalConnectionStatus = 'draft' | 'connected' | 'expired' | 'error' | 'syncing' | 'inactive';
+
+export interface ExternalConnection {
+  id: number;
+  user_id: number;
+  name: string;
+  provider: ExternalConnectionProvider;
+  status: ExternalConnectionStatus;
+  auth_type: ExternalConnectionAuthType;
+  config_json?: Record<string, unknown> | null;
+  created_at?: string;
+  updated_at?: string;
+}
+
+export type SourceDatasetKind = 'data_source' | 'external_connection';
+export type SourceDatasetType = 'raw' | 'normalized' | 'manual' | 'imported';
+export type SourceDatasetStatus = 'draft' | 'ready' | 'syncing' | 'error' | 'archived';
+
+export interface SourceDataset {
+  id: number;
+  source_kind: SourceDatasetKind;
+  source_ref_id: number;
+  account_ref_id?: number | null;
+  name: string;
+  slug: string;
+  dataset_type: SourceDatasetType;
+  grain?: string | null;
+  warehouse_schema: string;
+  warehouse_table: string;
+  primary_date_field?: string | null;
+  status: SourceDatasetStatus;
+  field_catalog_json?: Array<{ name: string; type?: string; role?: string; semantic_type?: string }> | Record<string, unknown> | null;
+  created_at?: string;
+  updated_at?: string;
+}
+
+export type DatasetDefinitionStatus = 'draft' | 'published' | 'error' | 'syncing' | 'archived';
+export type DatasetNodeType = 'source' | 'derived';
+export type DatasetEdgeJoinType = 'left' | 'inner';
+export type DatasetAggregationType = 'sum' | 'avg' | 'count' | 'min' | 'max' | 'none';
+
+export interface DatasetDefinition {
+  id: number;
+  user_id: number;
+  name: string;
+  slug: string;
+  description?: string | null;
+  status: DatasetDefinitionStatus;
+  warehouse_schema: string;
+  warehouse_table?: string | null;
+  primary_date_field?: string | null;
+  version: number;
+  created_at?: string;
+  updated_at?: string;
+}
+
+export interface DatasetNode {
+  id: number;
+  dataset_definition_id: number;
+  node_type: DatasetNodeType;
+  source_dataset_id?: number | null;
+  label: string;
+  pos_x: number;
+  pos_y: number;
+  config_json?: Record<string, unknown> | null;
+  created_at?: string;
+  updated_at?: string;
+}
+
+export interface DatasetEdge {
+  id: number;
+  dataset_definition_id: number;
+  from_node_id: number;
+  to_node_id: number;
+  join_type: DatasetEdgeJoinType;
+  from_field: string;
+  to_field: string;
+  created_at?: string;
+  updated_at?: string;
+}
+
+export interface DatasetSelectedColumn {
+  id: number;
+  dataset_definition_id: number;
+  node_id: number;
+  source_column: string;
+  output_column: string;
+  semantic_type?: string | null;
+  aggregation_type?: DatasetAggregationType | null;
+  is_dimension: boolean;
+  is_metric: boolean;
+  sort_order: number;
+  created_at?: string;
+  updated_at?: string;
+}
+
+export interface DatasetPreviewResponse {
+  dataset: DatasetDefinition;
+  sql: string;
+  columns: Array<{
+    output_column: string;
+    source_column: string;
+    semantic_type?: string | null;
+    aggregation_type?: DatasetAggregationType | null;
+    is_dimension: boolean;
+    is_metric: boolean;
+  }>;
+  rows: Array<Record<string, unknown>>;
+  row_count: number;
+}
+
+export interface DatasetPublishResponse {
+  status: 'success';
+  dataset: DatasetDefinition;
+  warehouse_schema: string;
+  warehouse_table: string;
+  row_count: number;
+  sql: string;
+}

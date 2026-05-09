@@ -8,18 +8,26 @@ use ProjectLara\Database;
 use ProjectLara\AppSettingsRepository;
 use ProjectLara\DataSourceRepository;
 use ProjectLara\DataSourceSchemaRepository;
+use ProjectLara\DatasetEdgeRepository;
+use ProjectLara\DatasetDefinitionRepository;
+use ProjectLara\DatasetNodeRepository;
+use ProjectLara\DatasetSelectedColumnRepository;
 use ProjectLara\DashboardSettingsRepository;
+use ProjectLara\ExternalConnectionRepository;
 use ProjectLara\ExtractorConnectorRepository;
 use ProjectLara\ExtractorJobRepository;
 use ProjectLara\ReportRepository;
+use ProjectLara\SourceDatasetRepository;
 use ProjectLara\UserRepository;
 use ProjectLara\Cache\RedisCache;
 use ProjectLara\Services\DataSourceInspector;
 use ProjectLara\Services\DataQueryService;
+use ProjectLara\Services\DatasetBuilderService;
 use ProjectLara\Services\ExtractorService;
 use ProjectLara\Services\GoogleSheetsService;
 use ProjectLara\Services\BigQueryService;
 use ProjectLara\Services\TokenService;
+use ProjectLara\Services\WarehouseService;
 use ProjectLara\Validators\DataSourceValidator;
 use ProjectLara\Validators\ExtractorConnectorValidator;
 use ProjectLara\Logger;
@@ -49,12 +57,28 @@ $appSettingsRepository = new AppSettingsRepository($connection);
 $reportRepository = new ReportRepository($connection);
 $calculatedMetricRepository = new CalculatedMetricRepository($connection);
 $userRepository = new UserRepository($connection);
+$externalConnectionRepository = new ExternalConnectionRepository($connection);
+$sourceDatasetRepository = new SourceDatasetRepository($connection);
+$datasetDefinitionRepository = new DatasetDefinitionRepository($connection);
+$datasetNodeRepository = new DatasetNodeRepository($connection);
+$datasetEdgeRepository = new DatasetEdgeRepository($connection);
+$datasetSelectedColumnRepository = new DatasetSelectedColumnRepository($connection);
 $extractorConnectorRepository = new ExtractorConnectorRepository($connection);
 $extractorJobRepository = new ExtractorJobRepository($connection);
 $tokenService = new TokenService(getenv('APP_KEY') ?: null);
 $cache = RedisCache::fromEnv();
 $queryService = new DataQueryService($repository, $inspector, $googleSheetsService, $bigQueryService, $cache);
 $extractorService = new ExtractorService($connection, $extractorConnectorRepository, $extractorJobRepository);
+$warehouseService = new WarehouseService();
+$datasetBuilderService = new DatasetBuilderService(
+    $connection,
+    $datasetDefinitionRepository,
+    $datasetNodeRepository,
+    $datasetEdgeRepository,
+    $datasetSelectedColumnRepository,
+    $sourceDatasetRepository,
+    $warehouseService
+);
 $currentUser = null;
 
 $cacheTtl = static function (string $key, int $fallback): int {
@@ -129,6 +153,181 @@ $requireAuth = static function (array $roles = []) use (&$currentUser) {
 
     return $currentUser;
 };
+
+$validateExternalConnectionPayload = static function (array $payload, bool $isUpdate = false): array {
+    $name = trim((string) ($payload['name'] ?? ''));
+    $provider = strtolower(trim((string) ($payload['provider'] ?? '')));
+    $authType = strtolower(trim((string) ($payload['auth_type'] ?? '')));
+    $status = strtolower(trim((string) ($payload['status'] ?? 'draft')));
+
+    $allowedProviders = ['google_ads', 'meta_ads', 'tiktok_ads', 'google_analytics', 'rd_station', 'hubspot', 'magneticgo'];
+    $allowedAuthTypes = ['oauth2', 'api_key', 'token', 'service_account'];
+    $allowedStatuses = ['draft', 'connected', 'expired', 'error', 'syncing', 'inactive'];
+
+    if (!$isUpdate || array_key_exists('name', $payload)) {
+        if ($name === '') {
+            throw new \InvalidArgumentException('Nome da conexão é obrigatório.');
+        }
+    }
+
+    if (!$isUpdate || array_key_exists('provider', $payload)) {
+        if (!in_array($provider, $allowedProviders, true)) {
+            throw new \InvalidArgumentException('Provider inválido para conexão externa.');
+        }
+    }
+
+    if (!$isUpdate || array_key_exists('auth_type', $payload)) {
+        if (!in_array($authType, $allowedAuthTypes, true)) {
+            throw new \InvalidArgumentException('Tipo de autenticação inválido.');
+        }
+    }
+
+    if (($payload['config_json'] ?? null) !== null && !is_array($payload['config_json'])) {
+        throw new \InvalidArgumentException('config_json deve ser um objeto JSON.');
+    }
+
+    if ($status !== '' && !in_array($status, $allowedStatuses, true)) {
+        throw new \InvalidArgumentException('Status inválido para conexão externa.');
+    }
+
+    return [
+        'user_id' => isset($payload['user_id']) ? (int) $payload['user_id'] : null,
+        'name' => $name,
+        'provider' => $provider,
+        'status' => $status !== '' ? $status : 'draft',
+        'auth_type' => $authType,
+        'config_json' => $payload['config_json'] ?? null,
+    ];
+};
+
+$validateDatasetDefinitionPayload = static function (array $payload, bool $isUpdate = false): array {
+    $name = trim((string) ($payload['name'] ?? ''));
+    $slug = trim((string) ($payload['slug'] ?? ''));
+    $status = strtolower(trim((string) ($payload['status'] ?? 'draft')));
+    $warehouseSchema = trim((string) ($payload['warehouse_schema'] ?? 'derived'));
+
+    $allowedStatuses = ['draft', 'published', 'error', 'syncing', 'archived'];
+
+    if (!$isUpdate || array_key_exists('name', $payload)) {
+        if ($name === '') {
+            throw new \InvalidArgumentException('Nome da base derivada é obrigatório.');
+        }
+    }
+
+    if (!$isUpdate || array_key_exists('slug', $payload)) {
+        if ($slug === '') {
+            throw new \InvalidArgumentException('Slug da base derivada é obrigatório.');
+        }
+    }
+
+    if (!in_array($status, $allowedStatuses, true)) {
+        throw new \InvalidArgumentException('Status inválido para base derivada.');
+    }
+
+    if ($warehouseSchema === '') {
+        throw new \InvalidArgumentException('Schema do warehouse é obrigatório.');
+    }
+
+    return [
+        'user_id' => isset($payload['user_id']) ? (int) $payload['user_id'] : null,
+        'name' => $name,
+        'slug' => $slug,
+        'description' => $payload['description'] ?? null,
+        'status' => $status,
+        'warehouse_schema' => $warehouseSchema,
+        'warehouse_table' => $payload['warehouse_table'] ?? null,
+        'primary_date_field' => $payload['primary_date_field'] ?? null,
+        'version' => isset($payload['version']) ? (int) $payload['version'] : 1,
+    ];
+};
+
+$validateDatasetNodePayload = static function (array $payload, bool $isUpdate = false): array {
+    $label = trim((string) ($payload['label'] ?? ''));
+    $nodeType = strtolower(trim((string) ($payload['node_type'] ?? 'source')));
+    $allowedNodeTypes = ['source', 'derived'];
+
+    if (!$isUpdate || array_key_exists('label', $payload)) {
+        if ($label === '') {
+            throw new \InvalidArgumentException('Label do node é obrigatório.');
+        }
+    }
+
+    if (!in_array($nodeType, $allowedNodeTypes, true)) {
+        throw new \InvalidArgumentException('Tipo de node inválido.');
+    }
+
+    if (($payload['config_json'] ?? null) !== null && !is_array($payload['config_json'])) {
+        throw new \InvalidArgumentException('config_json do node deve ser um objeto JSON.');
+    }
+
+    return [
+        'node_type' => $nodeType,
+        'source_dataset_id' => array_key_exists('source_dataset_id', $payload)
+            ? ($payload['source_dataset_id'] !== null ? (int) $payload['source_dataset_id'] : null)
+            : null,
+        'label' => $label,
+        'pos_x' => isset($payload['pos_x']) ? (float) $payload['pos_x'] : 0.0,
+        'pos_y' => isset($payload['pos_y']) ? (float) $payload['pos_y'] : 0.0,
+        'config_json' => $payload['config_json'] ?? null,
+    ];
+};
+
+$validateDatasetEdgePayload = static function (array $payload, bool $isUpdate = false): array {
+    $joinType = strtolower(trim((string) ($payload['join_type'] ?? 'left')));
+    $allowedJoinTypes = ['left', 'inner'];
+    $fromField = trim((string) ($payload['from_field'] ?? ''));
+    $toField = trim((string) ($payload['to_field'] ?? ''));
+
+    if (!in_array($joinType, $allowedJoinTypes, true)) {
+        throw new \InvalidArgumentException('Tipo de join inválido.');
+    }
+
+    if ((!$isUpdate || array_key_exists('from_field', $payload)) && $fromField === '') {
+        throw new \InvalidArgumentException('Campo de origem do join é obrigatório.');
+    }
+
+    if ((!$isUpdate || array_key_exists('to_field', $payload)) && $toField === '') {
+        throw new \InvalidArgumentException('Campo de destino do join é obrigatório.');
+    }
+
+    return [
+        'from_node_id' => isset($payload['from_node_id']) ? (int) $payload['from_node_id'] : null,
+        'to_node_id' => isset($payload['to_node_id']) ? (int) $payload['to_node_id'] : null,
+        'join_type' => $joinType,
+        'from_field' => $fromField,
+        'to_field' => $toField,
+    ];
+};
+
+$validateDatasetSelectedColumnPayload = static function (array $payload, bool $isUpdate = false): array {
+    $sourceColumn = trim((string) ($payload['source_column'] ?? ''));
+    $outputColumn = trim((string) ($payload['output_column'] ?? ''));
+    $aggregationType = strtolower(trim((string) ($payload['aggregation_type'] ?? 'none')));
+    $allowedAggregationTypes = ['sum', 'avg', 'count', 'min', 'max', 'none'];
+
+    if ((!$isUpdate || array_key_exists('source_column', $payload)) && $sourceColumn === '') {
+        throw new \InvalidArgumentException('Coluna de origem é obrigatória.');
+    }
+
+    if ((!$isUpdate || array_key_exists('output_column', $payload)) && $outputColumn === '') {
+        throw new \InvalidArgumentException('Nome da coluna de saída é obrigatório.');
+    }
+
+    if (!in_array($aggregationType, $allowedAggregationTypes, true)) {
+        throw new \InvalidArgumentException('Tipo de agregação inválido.');
+    }
+
+    return [
+        'node_id' => isset($payload['node_id']) ? (int) $payload['node_id'] : null,
+        'source_column' => $sourceColumn,
+        'output_column' => $outputColumn,
+        'semantic_type' => $payload['semantic_type'] ?? null,
+        'aggregation_type' => $aggregationType,
+        'is_dimension' => !empty($payload['is_dimension']),
+        'is_metric' => !empty($payload['is_metric']),
+        'sort_order' => isset($payload['sort_order']) ? (int) $payload['sort_order'] : 0,
+    ];
+};
 $segments = array_values(
     array_filter(
         explode('/', trim($path, '/')),
@@ -152,8 +351,390 @@ try {
             'DB_HOST' => getenv('DB_HOST'),
             'REDIS_HOST' => getenv('REDIS_HOST'),
             'APP_URL' => getenv('APP_URL'),
+            'WAREHOUSE_HOST' => getenv('WAREHOUSE_HOST'),
+            'WAREHOUSE_DB' => getenv('WAREHOUSE_DB'),
         ]);
 
+        exit;
+    }
+
+    if ($resource === 'warehouse') {
+        $requireAuth(['admin']);
+        $sub = $segments[1] ?? '';
+
+        if ($sub === 'health' && $method === 'GET') {
+            $warehouseService->ensureBaseSchemas();
+            $schemas = $warehouseService->listManagedSchemas();
+
+            Logger::write('warehouse_health_check', [
+                'status' => 'ok',
+                'schemas' => $schemas,
+            ]);
+
+            echo json_encode([
+                'status' => 'ok',
+                'driver' => getenv('WAREHOUSE_DRIVER') ?: 'pgsql',
+                'host' => getenv('WAREHOUSE_HOST') ?: '127.0.0.1',
+                'database' => getenv('WAREHOUSE_DB') ?: '',
+                'schemas' => $schemas,
+                'timestamp' => date(DATE_ATOM),
+            ], JSON_THROW_ON_ERROR);
+            exit;
+        }
+
+        http_response_code(405);
+        echo json_encode(['error' => 'method_not_allowed']);
+        exit;
+    }
+
+    if ($resource === 'external-connections') {
+        $authUser = $requireAuth(['admin', 'standard']);
+
+        if ($resourceId === null) {
+            if ($method === 'GET') {
+                $connections = $authUser['role'] === 'admin'
+                    ? $externalConnectionRepository->all()
+                    : array_values(array_filter(
+                        $externalConnectionRepository->all(),
+                        static fn (array $connection): bool => (int) ($connection['user_id'] ?? 0) === (int) $authUser['id']
+                    ));
+
+                echo json_encode($connections, JSON_THROW_ON_ERROR);
+                exit;
+            }
+
+            if ($method === 'POST') {
+                $body = file_get_contents('php://input');
+                $payload = json_decode($body ?: '{}', true, 512, JSON_THROW_ON_ERROR);
+                $validated = $validateExternalConnectionPayload($payload);
+                $validated['user_id'] = $validated['user_id'] ?: (int) $authUser['id'];
+
+                if ($authUser['role'] !== 'admin' && $validated['user_id'] !== (int) $authUser['id']) {
+                    http_response_code(403);
+                    echo json_encode(['error' => 'forbidden']);
+                    exit;
+                }
+
+                $created = $externalConnectionRepository->create($validated);
+                http_response_code(201);
+                echo json_encode($created, JSON_THROW_ON_ERROR);
+                exit;
+            }
+        } else {
+            $existing = $externalConnectionRepository->find($resourceId);
+            if (!$existing) {
+                http_response_code(404);
+                echo json_encode(['error' => 'not_found']);
+                exit;
+            }
+
+            if ($authUser['role'] !== 'admin' && (int) $existing['user_id'] !== (int) $authUser['id']) {
+                http_response_code(403);
+                echo json_encode(['error' => 'forbidden']);
+                exit;
+            }
+
+            if ($method === 'GET') {
+                echo json_encode($existing, JSON_THROW_ON_ERROR);
+                exit;
+            }
+
+            if ($method === 'PUT') {
+                $body = file_get_contents('php://input');
+                $payload = json_decode($body ?: '{}', true, 512, JSON_THROW_ON_ERROR);
+                $validated = $validateExternalConnectionPayload(array_merge($existing, $payload), true);
+                if ($authUser['role'] !== 'admin') {
+                    $validated['user_id'] = (int) $authUser['id'];
+                }
+                $updated = $externalConnectionRepository->update($resourceId, $validated);
+                echo json_encode($updated, JSON_THROW_ON_ERROR);
+                exit;
+            }
+
+            if ($method === 'DELETE') {
+                $externalConnectionRepository->delete($resourceId);
+                http_response_code(204);
+                exit;
+            }
+        }
+
+        http_response_code(405);
+        echo json_encode(['error' => 'method_not_allowed']);
+        exit;
+    }
+
+    if ($resource === 'source-datasets') {
+        $authUser = $requireAuth(['admin', 'standard']);
+
+        if ($resourceId === null) {
+            if ($method === 'GET') {
+                if (isset($_GET['source_kind'], $_GET['source_ref_id']) && $_GET['source_kind'] !== '' && ctype_digit((string) $_GET['source_ref_id'])) {
+                    $items = $sourceDatasetRepository->listForSource((string) $_GET['source_kind'], (int) $_GET['source_ref_id']);
+                    echo json_encode($items, JSON_THROW_ON_ERROR);
+                    exit;
+                }
+
+                echo json_encode($sourceDatasetRepository->all(), JSON_THROW_ON_ERROR);
+                exit;
+            }
+        } else {
+            $existing = $sourceDatasetRepository->find($resourceId);
+            if (!$existing) {
+                http_response_code(404);
+                echo json_encode(['error' => 'not_found']);
+                exit;
+            }
+
+            if ($method === 'GET') {
+                echo json_encode($existing, JSON_THROW_ON_ERROR);
+                exit;
+            }
+        }
+
+        http_response_code(405);
+        echo json_encode(['error' => 'method_not_allowed']);
+        exit;
+    }
+
+    if ($resource === 'dataset-definitions') {
+        $authUser = $requireAuth(['admin', 'standard']);
+
+        if ($resourceId === null) {
+            if ($method === 'GET') {
+                $items = $authUser['role'] === 'admin'
+                    ? $datasetDefinitionRepository->all()
+                    : $datasetDefinitionRepository->listByUser((int) $authUser['id']);
+
+                echo json_encode($items, JSON_THROW_ON_ERROR);
+                exit;
+            }
+
+            if ($method === 'POST') {
+                $body = file_get_contents('php://input');
+                $payload = json_decode($body ?: '{}', true, 512, JSON_THROW_ON_ERROR);
+                $validated = $validateDatasetDefinitionPayload($payload);
+                $validated['user_id'] = $validated['user_id'] ?: (int) $authUser['id'];
+
+                if ($authUser['role'] !== 'admin' && $validated['user_id'] !== (int) $authUser['id']) {
+                    http_response_code(403);
+                    echo json_encode(['error' => 'forbidden']);
+                    exit;
+                }
+
+                $created = $datasetDefinitionRepository->create($validated);
+                http_response_code(201);
+                echo json_encode($created, JSON_THROW_ON_ERROR);
+                exit;
+            }
+        } else {
+            $existing = $datasetDefinitionRepository->find($resourceId);
+            if (!$existing) {
+                http_response_code(404);
+                echo json_encode(['error' => 'not_found']);
+                exit;
+            }
+
+            if ($authUser['role'] !== 'admin' && (int) $existing['user_id'] !== (int) $authUser['id']) {
+                http_response_code(403);
+                echo json_encode(['error' => 'forbidden']);
+                exit;
+            }
+
+            if ($method === 'GET') {
+                echo json_encode($existing, JSON_THROW_ON_ERROR);
+                exit;
+            }
+
+            $subResource = $segments[2] ?? null;
+            $subResourceId = isset($segments[3]) && ctype_digit((string) $segments[3]) ? (int) $segments[3] : null;
+
+            if ($subResource === 'preview' && $subResourceId === null && $method === 'GET') {
+                $limit = isset($_GET['limit']) ? (int) $_GET['limit'] : 20;
+                $preview = $datasetBuilderService->preview($resourceId, $limit);
+                echo json_encode($preview, JSON_THROW_ON_ERROR);
+                exit;
+            }
+
+            if ($subResource === 'publish' && $subResourceId === null && $method === 'POST') {
+                $result = $datasetBuilderService->publish($resourceId);
+                echo json_encode($result, JSON_THROW_ON_ERROR);
+                exit;
+            }
+
+            if ($subResource === 'nodes') {
+                if ($subResourceId === null) {
+                    if ($method === 'GET') {
+                        echo json_encode($datasetNodeRepository->listForDefinition($resourceId), JSON_THROW_ON_ERROR);
+                        exit;
+                    }
+
+                    if ($method === 'POST') {
+                        $body = file_get_contents('php://input');
+                        $payload = json_decode($body ?: '{}', true, 512, JSON_THROW_ON_ERROR);
+                        $validated = $validateDatasetNodePayload($payload);
+                        $validated['dataset_definition_id'] = $resourceId;
+                        $created = $datasetNodeRepository->create($validated);
+                        http_response_code(201);
+                        echo json_encode($created, JSON_THROW_ON_ERROR);
+                        exit;
+                    }
+                } else {
+                    $node = $datasetNodeRepository->find($subResourceId);
+                    if (!$node || (int) $node['dataset_definition_id'] !== $resourceId) {
+                        http_response_code(404);
+                        echo json_encode(['error' => 'not_found']);
+                        exit;
+                    }
+
+                    if ($method === 'GET') {
+                        echo json_encode($node, JSON_THROW_ON_ERROR);
+                        exit;
+                    }
+
+                    if ($method === 'PUT') {
+                        $body = file_get_contents('php://input');
+                        $payload = json_decode($body ?: '{}', true, 512, JSON_THROW_ON_ERROR);
+                        $validated = $validateDatasetNodePayload(array_merge($node, $payload), true);
+                        $updated = $datasetNodeRepository->update($subResourceId, $validated);
+                        echo json_encode($updated, JSON_THROW_ON_ERROR);
+                        exit;
+                    }
+
+                    if ($method === 'DELETE') {
+                        $datasetNodeRepository->delete($subResourceId);
+                        http_response_code(204);
+                        exit;
+                    }
+                }
+
+                http_response_code(405);
+                echo json_encode(['error' => 'method_not_allowed']);
+                exit;
+            }
+
+            if ($subResource === 'edges') {
+                if ($subResourceId === null) {
+                    if ($method === 'GET') {
+                        echo json_encode($datasetEdgeRepository->listForDefinition($resourceId), JSON_THROW_ON_ERROR);
+                        exit;
+                    }
+
+                    if ($method === 'POST') {
+                        $body = file_get_contents('php://input');
+                        $payload = json_decode($body ?: '{}', true, 512, JSON_THROW_ON_ERROR);
+                        $validated = $validateDatasetEdgePayload($payload);
+                        $validated['dataset_definition_id'] = $resourceId;
+                        $created = $datasetEdgeRepository->create($validated);
+                        http_response_code(201);
+                        echo json_encode($created, JSON_THROW_ON_ERROR);
+                        exit;
+                    }
+                } else {
+                    $edge = $datasetEdgeRepository->find($subResourceId);
+                    if (!$edge || (int) $edge['dataset_definition_id'] !== $resourceId) {
+                        http_response_code(404);
+                        echo json_encode(['error' => 'not_found']);
+                        exit;
+                    }
+
+                    if ($method === 'GET') {
+                        echo json_encode($edge, JSON_THROW_ON_ERROR);
+                        exit;
+                    }
+
+                    if ($method === 'PUT') {
+                        $body = file_get_contents('php://input');
+                        $payload = json_decode($body ?: '{}', true, 512, JSON_THROW_ON_ERROR);
+                        $validated = $validateDatasetEdgePayload(array_merge($edge, $payload), true);
+                        $updated = $datasetEdgeRepository->update($subResourceId, $validated);
+                        echo json_encode($updated, JSON_THROW_ON_ERROR);
+                        exit;
+                    }
+
+                    if ($method === 'DELETE') {
+                        $datasetEdgeRepository->delete($subResourceId);
+                        http_response_code(204);
+                        exit;
+                    }
+                }
+
+                http_response_code(405);
+                echo json_encode(['error' => 'method_not_allowed']);
+                exit;
+            }
+
+            if ($subResource === 'selected-columns') {
+                if ($subResourceId === null) {
+                    if ($method === 'GET') {
+                        echo json_encode($datasetSelectedColumnRepository->listForDefinition($resourceId), JSON_THROW_ON_ERROR);
+                        exit;
+                    }
+
+                    if ($method === 'POST') {
+                        $body = file_get_contents('php://input');
+                        $payload = json_decode($body ?: '{}', true, 512, JSON_THROW_ON_ERROR);
+                        $validated = $validateDatasetSelectedColumnPayload($payload);
+                        $validated['dataset_definition_id'] = $resourceId;
+                        $created = $datasetSelectedColumnRepository->create($validated);
+                        http_response_code(201);
+                        echo json_encode($created, JSON_THROW_ON_ERROR);
+                        exit;
+                    }
+                } else {
+                    $column = $datasetSelectedColumnRepository->find($subResourceId);
+                    if (!$column || (int) $column['dataset_definition_id'] !== $resourceId) {
+                        http_response_code(404);
+                        echo json_encode(['error' => 'not_found']);
+                        exit;
+                    }
+
+                    if ($method === 'GET') {
+                        echo json_encode($column, JSON_THROW_ON_ERROR);
+                        exit;
+                    }
+
+                    if ($method === 'PUT') {
+                        $body = file_get_contents('php://input');
+                        $payload = json_decode($body ?: '{}', true, 512, JSON_THROW_ON_ERROR);
+                        $validated = $validateDatasetSelectedColumnPayload(array_merge($column, $payload), true);
+                        $updated = $datasetSelectedColumnRepository->update($subResourceId, $validated);
+                        echo json_encode($updated, JSON_THROW_ON_ERROR);
+                        exit;
+                    }
+
+                    if ($method === 'DELETE') {
+                        $datasetSelectedColumnRepository->delete($subResourceId);
+                        http_response_code(204);
+                        exit;
+                    }
+                }
+
+                http_response_code(405);
+                echo json_encode(['error' => 'method_not_allowed']);
+                exit;
+            }
+
+            if ($method === 'PUT') {
+                $body = file_get_contents('php://input');
+                $payload = json_decode($body ?: '{}', true, 512, JSON_THROW_ON_ERROR);
+                $validated = $validateDatasetDefinitionPayload(array_merge($existing, $payload), true);
+                if ($authUser['role'] !== 'admin') {
+                    $validated['user_id'] = (int) $authUser['id'];
+                }
+                $updated = $datasetDefinitionRepository->update($resourceId, $validated);
+                echo json_encode($updated, JSON_THROW_ON_ERROR);
+                exit;
+            }
+
+            if ($method === 'DELETE') {
+                $datasetDefinitionRepository->delete($resourceId);
+                http_response_code(204);
+                exit;
+            }
+        }
+
+        http_response_code(405);
+        echo json_encode(['error' => 'method_not_allowed']);
         exit;
     }
 

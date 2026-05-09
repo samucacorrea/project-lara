@@ -44,6 +44,7 @@ import { AuthProvider, useAuth } from './components/AuthProvider';
 import { CalculatedMetricsProvider } from './components/CalculatedMetricsProvider';
 import { LoginView } from './components/LoginView';
 import { JoinBuilder } from './components/extractor/JoinBuilder';
+import { DatasetBuilderStudio } from './components/extractor/DatasetBuilderStudio';
 import { UserSettingsView } from './components/UserSettingsView';
 import { AdminSettingsView } from './components/AdminSettingsView';
 import { fetchAppSettings } from './services/appSettingsService';
@@ -1379,12 +1380,7 @@ function AppContent() {
           }}
         />
         <div className="flex-1 overflow-y-auto">
-          <JoinBuilder
-            dataSources={dataSources}
-            activeDataSourceId={dashboardDataSourceId}
-            joinConfig={joinConfig}
-            onChange={setJoinConfig}
-          />
+          <DatasetBuilderStudio />
         </div>
       </div>
     );
