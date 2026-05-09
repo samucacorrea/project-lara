@@ -52,6 +52,8 @@ const normalizeJoinFieldName = (value: string) =>
     .replace(/[^a-z0-9]+/g, '_')
     .replace(/^_+|_+$/g, '');
 
+const ensureArray = <T,>(value: unknown): T[] => (Array.isArray(value) ? (value as T[]) : []);
+
 export const DatasetBuilderStudio: React.FC = () => {
   const [datasetDefinitions, setDatasetDefinitions] = useState<DatasetDefinition[]>([]);
   const [sourceDatasets, setSourceDatasets] = useState<SourceDataset[]>([]);
@@ -98,25 +100,30 @@ export const DatasetBuilderStudio: React.FC = () => {
     is_dimension: true,
     is_metric: false,
   });
+  const safeDatasetDefinitions = ensureArray<DatasetDefinition>(datasetDefinitions);
+  const safeSourceDatasets = ensureArray<SourceDataset>(sourceDatasets);
+  const safeNodes = ensureArray<DatasetNode>(nodes);
+  const safeEdges = ensureArray<DatasetEdge>(edges);
+  const safeSelectedColumns = ensureArray<DatasetSelectedColumn>(selectedColumns);
 
   const selectedDataset = useMemo(
-    () => datasetDefinitions.find((item) => item.id === selectedDatasetId) ?? null,
-    [datasetDefinitions, selectedDatasetId]
+    () => safeDatasetDefinitions.find((item) => item.id === selectedDatasetId) ?? null,
+    [safeDatasetDefinitions, selectedDatasetId]
   );
 
   const sourceMap = useMemo(
-    () => Object.fromEntries(sourceDatasets.map((item) => [item.id, item])),
-    [sourceDatasets]
+    () => Object.fromEntries(safeSourceDatasets.map((item) => [item.id, item])),
+    [safeSourceDatasets]
   );
 
   const nodeMap = useMemo(
-    () => Object.fromEntries(nodes.map((item) => [item.id, item])),
-    [nodes]
+    () => Object.fromEntries(safeNodes.map((item) => [item.id, item])),
+    [safeNodes]
   );
 
   const nodeFieldOptions = useMemo(() => {
     const map: Record<number, Array<{ name: string; type?: string }>> = {};
-    for (const node of nodes) {
+    for (const node of safeNodes) {
       const source = sourceMap[node.source_dataset_id ?? 0];
       const catalog = Array.isArray(source?.field_catalog_json) ? source.field_catalog_json : [];
       map[node.id] = catalog
@@ -127,10 +134,10 @@ export const DatasetBuilderStudio: React.FC = () => {
         }));
     }
     return map;
-  }, [nodes, sourceMap]);
+  }, [safeNodes, sourceMap]);
 
   const visualNodes = useMemo(() => {
-    return nodes.map((node, index) => {
+    return safeNodes.map((node, index) => {
       const source = sourceMap[node.source_dataset_id ?? 0];
       const fallbackX = 60 + (index % 4) * 300;
       const fallbackY = 80 + Math.floor(index / 4) * 220;
@@ -143,14 +150,14 @@ export const DatasetBuilderStudio: React.FC = () => {
         pos_y: overridden?.y ?? (Number.isFinite(node.pos_y) ? node.pos_y : fallbackY),
       };
     });
-  }, [nodes, sourceMap, nodePositions]);
+  }, [safeNodes, sourceMap, nodePositions]);
   const connectionSourceNode = useMemo(
     () => visualNodes.find((node) => node.id === connectionSourceNodeId) ?? null,
     [visualNodes, connectionSourceNodeId]
   );
 
   const visualEdges = useMemo(() => {
-    return edges
+    return safeEdges
       .map((edge) => {
         const fromNode = nodeMap[edge.from_node_id];
         const toNode = nodeMap[edge.to_node_id];
@@ -168,27 +175,27 @@ export const DatasetBuilderStudio: React.FC = () => {
         return { ...edge, path, labelX: (x1 + x2) / 2, labelY: (y1 + y2) / 2 - 10 };
       })
       .filter(Boolean) as Array<DatasetEdge & { path: string; labelX: number; labelY: number }>;
-  }, [edges, nodeMap]);
+  }, [safeEdges, nodeMap]);
 
   const selectedNode = useMemo(
     () => visualNodes.find((node) => node.id === selectedNodeId) ?? null,
     [visualNodes, selectedNodeId]
   );
   const selectedEdge = useMemo(
-    () => edges.find((edge) => edge.id === selectedEdgeId) ?? null,
-    [edges, selectedEdgeId]
+    () => safeEdges.find((edge) => edge.id === selectedEdgeId) ?? null,
+    [safeEdges, selectedEdgeId]
   );
   const selectedNodeColumns = useMemo(
-    () => selectedColumns.filter((column) => column.node_id === selectedNodeId),
-    [selectedColumns, selectedNodeId]
+    () => safeSelectedColumns.filter((column) => column.node_id === selectedNodeId),
+    [safeSelectedColumns, selectedNodeId]
   );
   const selectedNodeEdges = useMemo(
-    () => edges.filter((edge) => edge.from_node_id === selectedNodeId || edge.to_node_id === selectedNodeId),
-    [edges, selectedNodeId]
+    () => safeEdges.filter((edge) => edge.from_node_id === selectedNodeId || edge.to_node_id === selectedNodeId),
+    [safeEdges, selectedNodeId]
   );
   const availableTargetNodes = useMemo(
-    () => nodes.filter((node) => node.id !== Number(newEdge.from_node_id || 0)),
-    [nodes, newEdge.from_node_id]
+    () => safeNodes.filter((node) => node.id !== Number(newEdge.from_node_id || 0)),
+    [safeNodes, newEdge.from_node_id]
   );
   const compatibleTargetFields = useMemo(() => {
     const fromFields = nodeFieldOptions[Number(newEdge.from_node_id)] ?? [];
@@ -265,8 +272,9 @@ export const DatasetBuilderStudio: React.FC = () => {
   const refreshDefinitions = async () => {
     const items = await listDatasetDefinitions();
     setDatasetDefinitions(Array.isArray(items) ? items : []);
-    if (!selectedDatasetId && items[0]) {
-      setSelectedDatasetId(items[0].id);
+    const safeItems = ensureArray<DatasetDefinition>(items);
+    if (!selectedDatasetId && safeItems[0]) {
+      setSelectedDatasetId(safeItems[0].id);
     }
   };
 
@@ -327,7 +335,7 @@ export const DatasetBuilderStudio: React.FC = () => {
 
   useEffect(() => {
     const nextPositions: Record<number, { x: number; y: number }> = {};
-    nodes.forEach((node, index) => {
+    safeNodes.forEach((node, index) => {
       const fallbackX = 60 + (index % 4) * 300;
       const fallbackY = 80 + Math.floor(index / 4) * 220;
       nextPositions[node.id] = {
@@ -336,7 +344,7 @@ export const DatasetBuilderStudio: React.FC = () => {
       };
     });
     setNodePositions(nextPositions);
-  }, [nodes]);
+  }, [safeNodes]);
 
   useEffect(() => {
     if (selectedNode) {
@@ -398,7 +406,7 @@ export const DatasetBuilderStudio: React.FC = () => {
 
   const handleCreateNode = async () => {
     if (!selectedDatasetId || !newNodeSourceId || !newNodeLabel.trim()) return;
-    const nextIndex = nodes.length;
+    const nextIndex = safeNodes.length;
     const posX = 60 + (nextIndex % 4) * 300;
     const posY = 80 + Math.floor(nextIndex / 4) * 220;
 
@@ -823,7 +831,7 @@ export const DatasetBuilderStudio: React.FC = () => {
               </div>
 
               <div className="mt-4 space-y-2 max-h-[420px] overflow-y-auto pr-1">
-                {datasetDefinitions.map((dataset) => (
+                {safeDatasetDefinitions.map((dataset) => (
                   <button
                     key={dataset.id}
                     className={`w-full rounded-2xl border px-4 py-3 text-left transition ${
@@ -850,7 +858,7 @@ export const DatasetBuilderStudio: React.FC = () => {
                 <h2 className="text-sm font-semibold">Datasets fonte</h2>
               </div>
               <div className="mt-4 space-y-2 max-h-[300px] overflow-y-auto pr-1">
-                {sourceDatasets.map((dataset) => (
+                {safeSourceDatasets.map((dataset) => (
                   <div key={dataset.id} className="rounded-2xl border border-gray-100 bg-[#FAFBFE] px-4 py-3">
                     <p className="text-sm font-semibold text-gray-900">{dataset.name}</p>
                     <p className="text-xs text-gray-500">{dataset.warehouse_schema}.{dataset.warehouse_table}</p>
@@ -874,7 +882,7 @@ export const DatasetBuilderStudio: React.FC = () => {
                 </p>
               </div>
               <div className="rounded-full bg-[#F5F3FF] px-3 py-1 text-xs font-semibold text-[#5B4DFF]">
-                {nodes.length} nodes · {edges.length} joins
+                {safeNodes.length} nodes · {safeEdges.length} joins
               </div>
             </div>
 
@@ -1097,7 +1105,7 @@ export const DatasetBuilderStudio: React.FC = () => {
                       <button
                         className="w-full rounded-xl border border-[#5B4DFF]/20 bg-[#F5F3FF] px-4 py-2 text-sm font-medium text-[#5B4DFF] disabled:opacity-60"
                         onClick={handleStartConnection}
-                        disabled={loading || nodes.length < 2}
+                        disabled={loading || safeNodes.length < 2}
                       >
                         Conectar visualmente
                       </button>
@@ -1127,14 +1135,14 @@ export const DatasetBuilderStudio: React.FC = () => {
                       onChange={(event) => {
                         const sourceId = event.target.value;
                         setNewNodeSourceId(sourceId);
-                        const source = sourceDatasets.find((item) => String(item.id) === sourceId);
+                        const source = safeSourceDatasets.find((item) => String(item.id) === sourceId);
                         if (source && !newNodeLabel) {
                           setNewNodeLabel(source.name);
                         }
                       }}
                     >
                       <option value="">Selecionar dataset fonte...</option>
-                      {sourceDatasets.map((dataset) => (
+                      {safeSourceDatasets.map((dataset) => (
                         <option key={dataset.id} value={dataset.id}>
                           {dataset.name}
                         </option>
@@ -1189,7 +1197,7 @@ export const DatasetBuilderStudio: React.FC = () => {
                   }
                 >
                   <option value="">Node origem...</option>
-                  {nodes.map((node) => (
+                  {safeNodes.map((node) => (
                     <option key={node.id} value={node.id}>
                       {node.label}
                     </option>
@@ -1268,9 +1276,9 @@ export const DatasetBuilderStudio: React.FC = () => {
                 )}
               </div>
 
-              {edges.length > 0 && (
+              {safeEdges.length > 0 && (
                 <div className="mt-4 space-y-2">
-                  {edges.map((edge) => (
+                  {safeEdges.map((edge) => (
                     <div key={edge.id} className="rounded-2xl border border-gray-100 bg-[#FAFBFE] px-3 py-3">
                       <div className="flex items-start justify-between gap-3">
                         <div className="text-xs text-slate-600">
@@ -1305,7 +1313,7 @@ export const DatasetBuilderStudio: React.FC = () => {
                   onChange={(event) => setNewColumn((prev) => ({ ...prev, node_id: event.target.value, source_column: '', output_column: '' }))}
                 >
                   <option value="">Node...</option>
-                  {nodes.map((node) => (
+                  {safeNodes.map((node) => (
                     <option key={node.id} value={node.id}>
                       {node.label}
                     </option>
