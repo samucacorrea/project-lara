@@ -49,7 +49,6 @@ const WIDGET_CATEGORIES = [
 const MOCK_MENU = [
   { label: 'Dashboard', icon: LayoutDashboard, view: 'list' },
   { label: 'Criar dashboard', icon: Settings, view: 'builder' },
-  { label: 'Construtor', icon: Filter, view: 'extractor' },
 ];
 
 export const Sidebar: React.FC<

@@ -43,7 +43,6 @@ import { saveReport, fetchReport, shareReport, listReports, updateReport, delete
 import { AuthProvider, useAuth } from './components/AuthProvider';
 import { CalculatedMetricsProvider } from './components/CalculatedMetricsProvider';
 import { LoginView } from './components/LoginView';
-import { JoinBuilder } from './components/extractor/JoinBuilder';
 import { DatasetBuilderStudio } from './components/extractor/DatasetBuilderStudio';
 import { UserSettingsView } from './components/UserSettingsView';
 import { AdminSettingsView } from './components/AdminSettingsView';
@@ -342,6 +341,7 @@ function AppContent() {
   );
 
   const canEdit = Boolean(user && hasPermission('builder'));
+  const canUseConstructor = Boolean(user && hasPermission('constructor'));
 
   const formatDateTime = useCallback((value?: string) => {
     if (!value) return '---';
@@ -1950,6 +1950,17 @@ function AppContent() {
                     <Database size={16} className="text-[#0f766e]" />
                     Gerenciar Dados
                   </button>
+                  {canUseConstructor && (
+                    <button
+                      onClick={() => !isSharedView && setViewMode('extractor')}
+                      disabled={isSharedView}
+                      className="flex items-center gap-2 px-4 py-2 bg-white text-gray-700 rounded-xl shadow-sm transition-all text-sm font-medium border border-gray-100 disabled:opacity-50"
+                      title="Abrir construtor de bases"
+                    >
+                      <FileText size={16} className="text-[#5B4DFF]" />
+                      Construtor de Bases
+                    </button>
+                  )}
 
                   <button
                     onClick={() => canEdit && setIsDateFilterVisible((prev) => !prev)}
