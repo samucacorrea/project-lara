@@ -69,16 +69,39 @@ $tokenService = new TokenService(getenv('APP_KEY') ?: null);
 $cache = RedisCache::fromEnv();
 $queryService = new DataQueryService($repository, $inspector, $googleSheetsService, $bigQueryService, $cache);
 $extractorService = new ExtractorService($connection, $extractorConnectorRepository, $extractorJobRepository);
-$warehouseService = new WarehouseService();
-$datasetBuilderService = new DatasetBuilderService(
+$warehouseService = null;
+$datasetBuilderService = null;
+$getWarehouseService = static function () use (&$warehouseService): WarehouseService {
+    if (!$warehouseService instanceof WarehouseService) {
+        $warehouseService = new WarehouseService();
+    }
+
+    return $warehouseService;
+};
+$getDatasetBuilderService = static function () use (
+    &$datasetBuilderService,
     $connection,
     $datasetDefinitionRepository,
     $datasetNodeRepository,
     $datasetEdgeRepository,
     $datasetSelectedColumnRepository,
     $sourceDatasetRepository,
-    $warehouseService
-);
+    $getWarehouseService
+): DatasetBuilderService {
+    if (!$datasetBuilderService instanceof DatasetBuilderService) {
+        $datasetBuilderService = new DatasetBuilderService(
+            $connection,
+            $datasetDefinitionRepository,
+            $datasetNodeRepository,
+            $datasetEdgeRepository,
+            $datasetSelectedColumnRepository,
+            $sourceDatasetRepository,
+            $getWarehouseService()
+        );
+    }
+
+    return $datasetBuilderService;
+};
 $currentUser = null;
 
 $cacheTtl = static function (string $key, int $fallback): int {
@@ -363,8 +386,9 @@ try {
         $sub = $segments[1] ?? '';
 
         if ($sub === 'health' && $method === 'GET') {
-            $warehouseService->ensureBaseSchemas();
-            $schemas = $warehouseService->listManagedSchemas();
+            $warehouse = $getWarehouseService();
+            $warehouse->ensureBaseSchemas();
+            $schemas = $warehouse->listManagedSchemas();
 
             Logger::write('warehouse_health_check', [
                 'status' => 'ok',
@@ -550,13 +574,13 @@ try {
 
             if ($subResource === 'preview' && $subResourceId === null && $method === 'GET') {
                 $limit = isset($_GET['limit']) ? (int) $_GET['limit'] : 20;
-                $preview = $datasetBuilderService->preview($resourceId, $limit);
+                $preview = $getDatasetBuilderService()->preview($resourceId, $limit);
                 echo json_encode($preview, JSON_THROW_ON_ERROR);
                 exit;
             }
 
             if ($subResource === 'publish' && $subResourceId === null && $method === 'POST') {
-                $result = $datasetBuilderService->publish($resourceId);
+                $result = $getDatasetBuilderService()->publish($resourceId);
                 echo json_encode($result, JSON_THROW_ON_ERROR);
                 exit;
             }
