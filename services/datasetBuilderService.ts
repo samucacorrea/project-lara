@@ -10,6 +10,19 @@ import {
 } from '../types';
 import { httpRequest } from './httpClient';
 
+function ensureArrayResponse<T>(value: unknown, label: string): T[] {
+  if (Array.isArray(value)) {
+    return value as T[];
+  }
+
+  const message =
+    value && typeof value === 'object' && 'message' in (value as Record<string, unknown>)
+      ? String((value as Record<string, unknown>).message)
+      : `Resposta inválida em ${label}: esperado array.`;
+
+  throw new Error(message);
+}
+
 export type ExternalConnectionPayload = {
   user_id?: number;
   name: string;
@@ -60,10 +73,11 @@ export type DatasetSelectedColumnPayload = {
 };
 
 export async function listExternalConnections(): Promise<ExternalConnection[]> {
-  return httpRequest<ExternalConnection[]>('/external-connections', {
+  const response = await httpRequest<unknown>('/external-connections', {
     method: 'GET',
     label: 'ListExternalConnections',
   });
+  return ensureArrayResponse<ExternalConnection>(response, 'ListExternalConnections');
 }
 
 export async function createExternalConnection(payload: ExternalConnectionPayload): Promise<ExternalConnection> {
@@ -80,17 +94,19 @@ export async function listSourceDatasets(sourceKind?: string, sourceRefId?: numb
       ? `?source_kind=${encodeURIComponent(sourceKind)}&source_ref_id=${encodeURIComponent(String(sourceRefId))}`
       : '';
 
-  return httpRequest<SourceDataset[]>(`/source-datasets${query}`, {
+  const response = await httpRequest<unknown>(`/source-datasets${query}`, {
     method: 'GET',
     label: 'ListSourceDatasets',
   });
+  return ensureArrayResponse<SourceDataset>(response, 'ListSourceDatasets');
 }
 
 export async function listDatasetDefinitions(): Promise<DatasetDefinition[]> {
-  return httpRequest<DatasetDefinition[]>('/dataset-definitions', {
+  const response = await httpRequest<unknown>('/dataset-definitions', {
     method: 'GET',
     label: 'ListDatasetDefinitions',
   });
+  return ensureArrayResponse<DatasetDefinition>(response, 'ListDatasetDefinitions');
 }
 
 export async function createDatasetDefinition(payload: DatasetDefinitionPayload): Promise<DatasetDefinition> {
@@ -110,10 +126,11 @@ export async function updateDatasetDefinition(id: number, payload: Partial<Datas
 }
 
 export async function listDatasetNodes(datasetId: number): Promise<DatasetNode[]> {
-  return httpRequest<DatasetNode[]>(`/dataset-definitions/${datasetId}/nodes`, {
+  const response = await httpRequest<unknown>(`/dataset-definitions/${datasetId}/nodes`, {
     method: 'GET',
     label: 'ListDatasetNodes',
   });
+  return ensureArrayResponse<DatasetNode>(response, 'ListDatasetNodes');
 }
 
 export async function createDatasetNode(datasetId: number, payload: DatasetNodePayload): Promise<DatasetNode> {
@@ -140,10 +157,11 @@ export async function deleteDatasetNode(datasetId: number, nodeId: number): Prom
 }
 
 export async function listDatasetEdges(datasetId: number): Promise<DatasetEdge[]> {
-  return httpRequest<DatasetEdge[]>(`/dataset-definitions/${datasetId}/edges`, {
+  const response = await httpRequest<unknown>(`/dataset-definitions/${datasetId}/edges`, {
     method: 'GET',
     label: 'ListDatasetEdges',
   });
+  return ensureArrayResponse<DatasetEdge>(response, 'ListDatasetEdges');
 }
 
 export async function createDatasetEdge(datasetId: number, payload: DatasetEdgePayload): Promise<DatasetEdge> {
@@ -170,10 +188,11 @@ export async function deleteDatasetEdge(datasetId: number, edgeId: number): Prom
 }
 
 export async function listDatasetSelectedColumns(datasetId: number): Promise<DatasetSelectedColumn[]> {
-  return httpRequest<DatasetSelectedColumn[]>(`/dataset-definitions/${datasetId}/selected-columns`, {
+  const response = await httpRequest<unknown>(`/dataset-definitions/${datasetId}/selected-columns`, {
     method: 'GET',
     label: 'ListDatasetSelectedColumns',
   });
+  return ensureArrayResponse<DatasetSelectedColumn>(response, 'ListDatasetSelectedColumns');
 }
 
 export async function createDatasetSelectedColumn(

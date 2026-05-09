@@ -264,7 +264,7 @@ export const DatasetBuilderStudio: React.FC = () => {
 
   const refreshDefinitions = async () => {
     const items = await listDatasetDefinitions();
-    setDatasetDefinitions(items);
+    setDatasetDefinitions(Array.isArray(items) ? items : []);
     if (!selectedDatasetId && items[0]) {
       setSelectedDatasetId(items[0].id);
     }
@@ -272,7 +272,7 @@ export const DatasetBuilderStudio: React.FC = () => {
 
   const refreshSources = async () => {
     const items = await listSourceDatasets();
-    setSourceDatasets(items);
+    setSourceDatasets(Array.isArray(items) ? items : []);
   };
 
   const refreshDatasetDetails = async (datasetId: number) => {
@@ -281,9 +281,9 @@ export const DatasetBuilderStudio: React.FC = () => {
       listDatasetEdges(datasetId),
       listDatasetSelectedColumns(datasetId),
     ]);
-    setNodes(nodeItems);
-    setEdges(edgeItems);
-    setSelectedColumns(columnItems);
+    setNodes(Array.isArray(nodeItems) ? nodeItems : []);
+    setEdges(Array.isArray(edgeItems) ? edgeItems : []);
+    setSelectedColumns(Array.isArray(columnItems) ? columnItems : []);
   };
 
   useEffect(() => {
@@ -313,6 +313,10 @@ export const DatasetBuilderStudio: React.FC = () => {
 
     setLoading(true);
     setError(null);
+    setNodes([]);
+    setEdges([]);
+    setSelectedColumns([]);
+    setPreview(null);
     refreshDatasetDetails(selectedDatasetId)
       .catch((err) => {
         console.error(err);
