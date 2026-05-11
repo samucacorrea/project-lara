@@ -846,7 +846,7 @@ export const DatasetBuilderStudio: React.FC = () => {
                     <p className="mt-1 text-[11px] font-medium text-[#5B4DFF] uppercase">{dataset.status}</p>
                   </button>
                 ))}
-                {!datasetDefinitions.length && (
+                {!safeDatasetDefinitions.length && (
                   <p className="text-sm text-gray-500">Nenhuma base derivada criada ainda.</p>
                 )}
               </div>
@@ -1377,9 +1377,9 @@ export const DatasetBuilderStudio: React.FC = () => {
                 </button>
               </div>
 
-              {selectedColumns.length > 0 && (
+              {safeSelectedColumns.length > 0 && (
                 <div className="mt-4 space-y-2 max-h-[280px] overflow-y-auto pr-1">
-                  {(selectedNode ? selectedNodeColumns : selectedColumns).map((column) => (
+                  {(selectedNode ? selectedNodeColumns : safeSelectedColumns).map((column) => (
                     <div key={column.id} className="rounded-2xl border border-gray-100 bg-[#FAFBFE] px-3 py-3">
                       <div className="flex items-start justify-between gap-3">
                         <div className="text-xs text-slate-600">
@@ -1424,7 +1424,7 @@ export const DatasetBuilderStudio: React.FC = () => {
                 <table className="min-w-full text-sm">
                   <thead className="bg-[#F8F9FC]">
                     <tr>
-                      {preview.columns.map((column) => (
+                      {ensureArray<typeof preview.columns[number]>(preview.columns).map((column) => (
                         <th key={column.output_column} className="px-3 py-2 text-left font-semibold text-gray-700">
                           {column.output_column}
                         </th>
@@ -1432,9 +1432,9 @@ export const DatasetBuilderStudio: React.FC = () => {
                     </tr>
                   </thead>
                   <tbody>
-                    {preview.rows.map((row, index) => (
+                    {ensureArray<Record<string, unknown>>(preview.rows).map((row, index) => (
                       <tr key={index} className="border-t border-gray-100">
-                        {preview.columns.map((column) => (
+                        {ensureArray<typeof preview.columns[number]>(preview.columns).map((column) => (
                           <td key={`${index}-${column.output_column}`} className="px-3 py-2 text-gray-600">
                             {String(row[column.output_column] ?? '')}
                           </td>
