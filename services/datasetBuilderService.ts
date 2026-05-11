@@ -88,6 +88,24 @@ export async function createExternalConnection(payload: ExternalConnectionPayloa
   });
 }
 
+export async function updateExternalConnection(
+  id: number,
+  payload: Partial<ExternalConnectionPayload>
+): Promise<ExternalConnection> {
+  return httpRequest<ExternalConnection>(`/external-connections/${id}`, {
+    method: 'PUT',
+    body: JSON.stringify(payload),
+    label: 'UpdateExternalConnection',
+  });
+}
+
+export async function deleteExternalConnection(id: number): Promise<void> {
+  await httpRequest<void>(`/external-connections/${id}`, {
+    method: 'DELETE',
+    label: 'DeleteExternalConnection',
+  });
+}
+
 export async function listSourceDatasets(sourceKind?: string, sourceRefId?: number): Promise<SourceDataset[]> {
   const query =
     sourceKind && sourceRefId

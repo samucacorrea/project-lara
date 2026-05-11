@@ -1,7 +1,20 @@
 import React, { useEffect, useState } from 'react';
-import { X, Database, Table, Server, CheckCircle2, AlertCircle, Loader2, Trash2 } from 'lucide-react';
-import { DataSource, DataSourcePayload, DataSourceType } from '../types';
+import { X, Database, Table, Server, CheckCircle2, AlertCircle, Loader2, Trash2, Link2, ShieldCheck, KeyRound } from 'lucide-react';
+import {
+  DataSource,
+  DataSourcePayload,
+  DataSourceType,
+  ExternalConnection,
+  ExternalConnectionAuthType,
+  ExternalConnectionProvider,
+} from '../types';
 import { previewDataSourceColumns } from '../services/dataSourcesService';
+import {
+  createExternalConnection,
+  deleteExternalConnection,
+  listExternalConnections,
+  updateExternalConnection,
+} from '../services/datasetBuilderService';
 
 interface DataSourcesModalProps {
   isOpen: boolean;
@@ -61,6 +74,107 @@ const GOOGLE_COLUMN_TYPE_OPTIONS = [
   { value: 'datetime', label: 'datetime' },
 ];
 
+type CatalogMode = 'manual' | 'native';
+
+const NATIVE_PROVIDER_OPTIONS: Array<{
+  id: ExternalConnectionProvider;
+  label: string;
+  description: string;
+  authTypes: ExternalConnectionAuthType[];
+}> = [
+  {
+    id: 'google_ads',
+    label: 'Google Ads',
+    description: 'Campanhas, grupos, anúncios e métricas do Google Ads.',
+    authTypes: ['oauth2', 'service_account'],
+  },
+  {
+    id: 'meta_ads',
+    label: 'Meta Ads',
+    description: 'Contas, campanhas, conjuntos e anúncios da Meta.',
+    authTypes: ['oauth2', 'token'],
+  },
+  {
+    id: 'tiktok_ads',
+    label: 'TikTok Ads',
+    description: 'Dados de mídia e campanhas do TikTok Ads.',
+    authTypes: ['oauth2', 'token'],
+  },
+  {
+    id: 'google_analytics',
+    label: 'Google Analytics',
+    description: 'Properties e métricas do Google Analytics / GA4.',
+    authTypes: ['oauth2', 'service_account'],
+  },
+  {
+    id: 'rd_station',
+    label: 'RD Station',
+    description: 'Leads, funis e automações do RD Station.',
+    authTypes: ['oauth2', 'token', 'api_key'],
+  },
+  {
+    id: 'hubspot',
+    label: 'HubSpot',
+    description: 'Contatos, negócios e eventos do HubSpot.',
+    authTypes: ['oauth2', 'token', 'api_key'],
+  },
+  {
+    id: 'magneticgo',
+    label: 'Magneticgo',
+    description: 'Dados da API da Magneticgo.',
+    authTypes: ['token', 'api_key'],
+  },
+];
+
+const AUTH_TYPE_LABELS: Record<ExternalConnectionAuthType, string> = {
+  oauth2: 'OAuth2',
+  api_key: 'API Key',
+  token: 'Token',
+  service_account: 'Service Account',
+};
+
+function getNativeFieldPreset(
+  provider: ExternalConnectionProvider | null,
+  authType: ExternalConnectionAuthType
+): Array<{ key: string; label: string; placeholder: string; multiline?: boolean; secret?: boolean }> {
+  const common = [{ key: 'account_hint', label: 'Conta / propriedade (opcional)', placeholder: 'Ex: BR Account, Property 1234' }];
+
+  if (!provider) {
+    return common;
+  }
+
+  if (authType === 'oauth2') {
+    return [
+      { key: 'client_id', label: 'Client ID', placeholder: 'Cole o client id do app' },
+      { key: 'client_secret', label: 'Client Secret', placeholder: 'Cole o client secret do app', secret: true },
+      { key: 'redirect_uri', label: 'Redirect URI', placeholder: 'https://sua-api.com/oauth/callback' },
+      { key: 'scopes', label: 'Scopes', placeholder: 'scope1,scope2,scope3' },
+      ...common,
+    ];
+  }
+
+  if (authType === 'service_account') {
+    return [
+      { key: 'service_account_json', label: 'JSON da service account', placeholder: '{"type":"service_account",...}', multiline: true },
+      ...common,
+    ];
+  }
+
+  if (authType === 'api_key') {
+    return [
+      { key: 'api_key', label: 'API Key', placeholder: 'Cole a API key da plataforma', secret: true },
+      { key: 'api_base_url', label: 'Base URL (opcional)', placeholder: 'https://api.plataforma.com' },
+      ...common,
+    ];
+  }
+
+  return [
+    { key: 'access_token', label: 'Access Token', placeholder: 'Cole o token de acesso', secret: true },
+    { key: 'api_base_url', label: 'Base URL (opcional)', placeholder: 'https://api.plataforma.com' },
+    ...common,
+  ];
+}
+
 export const DataSourcesModal: React.FC<DataSourcesModalProps> = ({
   isOpen,
   onClose,
@@ -71,7 +185,10 @@ export const DataSourcesModal: React.FC<DataSourcesModalProps> = ({
   isLoading,
 }) => {
   const [step, setStep] = useState<'list' | 'create'>('list');
+  const [catalogMode, setCatalogMode] = useState<CatalogMode>('manual');
   const [selectedType, setSelectedType] = useState<DataSourceType | null>(null);
+  const [selectedProvider, setSelectedProvider] = useState<ExternalConnectionProvider | null>(null);
+  const [selectedAuthType, setSelectedAuthType] = useState<ExternalConnectionAuthType>('oauth2');
   const [configName, setConfigName] = useState('');
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);
@@ -95,9 +212,14 @@ export const DataSourcesModal: React.FC<DataSourcesModalProps> = ({
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
   const [confirmDeleteName, setConfirmDeleteName] = useState('');
   const [confirmDeleteInput, setConfirmDeleteInput] = useState('');
+  const [confirmDeleteNativeId, setConfirmDeleteNativeId] = useState<number | null>(null);
   const [googleSelectedWorksheet, setGoogleSelectedWorksheet] = useState('');
   const [googlePreviewColumns, setGooglePreviewColumns] = useState<Record<string, Array<{ name: string; type: string }>>>({});
   const [googleColumnsLoading, setGoogleColumnsLoading] = useState(false);
+  const [externalConnections, setExternalConnections] = useState<ExternalConnection[]>([]);
+  const [isLoadingExternalConnections, setIsLoadingExternalConnections] = useState(false);
+  const [nativeConfig, setNativeConfig] = useState<Record<string, string>>({});
+  const [editingNativeId, setEditingNativeId] = useState<number | null>(null);
 
   useEffect(() => {
     if (isOpen) {
@@ -111,6 +233,33 @@ export const DataSourcesModal: React.FC<DataSourcesModalProps> = ({
       });
     }
   }, [isOpen, modalSize.width, modalSize.height]);
+
+  useEffect(() => {
+    if (!isOpen) return;
+
+    const loadExternalConnections = async () => {
+      try {
+        setIsLoadingExternalConnections(true);
+        const connections = await listExternalConnections();
+        setExternalConnections(Array.isArray(connections) ? connections : []);
+      } catch (error) {
+        setErrorMessage(error instanceof Error ? error.message : 'Erro ao carregar conexões nativas.');
+      } finally {
+        setIsLoadingExternalConnections(false);
+      }
+    };
+
+    void loadExternalConnections();
+  }, [isOpen]);
+
+  useEffect(() => {
+    if (!selectedProvider) return;
+    const provider = NATIVE_PROVIDER_OPTIONS.find((item) => item.id === selectedProvider);
+    if (!provider) return;
+    if (!provider.authTypes.includes(selectedAuthType)) {
+      setSelectedAuthType(provider.authTypes[0]);
+    }
+  }, [selectedProvider, selectedAuthType]);
 
   useEffect(() => {
     const handleMouseMove = (event: MouseEvent) => {
@@ -170,8 +319,12 @@ export const DataSourcesModal: React.FC<DataSourcesModalProps> = ({
 
   const resetForm = () => {
     setStep('list');
+    setCatalogMode('manual');
     setConfigName('');
     setSelectedType(null);
+    setSelectedProvider(null);
+    setSelectedAuthType('oauth2');
+    setNativeConfig({});
     setMysqlConfig(mysqlDefaults);
     setGoogleConfig(googleDefaults);
     setBigQueryConfig(bigQueryDefaults);
@@ -186,6 +339,7 @@ export const DataSourcesModal: React.FC<DataSourcesModalProps> = ({
     setGoogleSelectedWorksheet('');
     setGooglePreviewColumns({});
     setGoogleColumnsLoading(false);
+    setEditingNativeId(null);
   };
 
   const normalizedGoogleTables = googleConfig.worksheets.length
@@ -195,12 +349,56 @@ export const DataSourcesModal: React.FC<DataSourcesModalProps> = ({
     : [];
 
   const googleActiveWorksheet = googleSelectedWorksheet || normalizedGoogleTables[0] || '';
+  const selectedProviderMeta = NATIVE_PROVIDER_OPTIONS.find((item) => item.id === selectedProvider) ?? null;
+  const nativeFields = getNativeFieldPreset(selectedProvider, selectedAuthType);
 
   const handleCreate = async () => {
     const normalizedName = configName.trim();
     if (!normalizedName) {
       setErrorMessage('Informe um nome para identificar esta conexão.');
       return;
+    }
+
+    if (catalogMode === 'native') {
+      if (!selectedProvider) {
+        setErrorMessage('Selecione a plataforma que deseja conectar.');
+        return;
+      }
+
+      try {
+        setIsSaving(true);
+        setErrorMessage(null);
+        const payload = {
+          name: normalizedName,
+          provider: selectedProvider,
+          auth_type: selectedAuthType,
+          status: 'draft' as const,
+          config_json: Object.fromEntries(
+            Object.entries(nativeConfig)
+              .map(([key, value]) => [key, value.trim()])
+              .filter(([, value]) => value)
+          ),
+        };
+
+        const savedConnection = editingNativeId
+          ? await updateExternalConnection(editingNativeId, payload)
+          : await createExternalConnection(payload);
+
+        setExternalConnections((prev) => {
+          const next = editingNativeId
+            ? prev.map((item) => (item.id === savedConnection.id ? savedConnection : item))
+            : [savedConnection, ...prev];
+          return next.sort((a, b) => b.id - a.id);
+        });
+        resetForm();
+        return;
+      } catch (error) {
+        setErrorMessage(error instanceof Error ? error.message : 'Erro ao salvar conexão nativa.');
+        setConnectionStatus('error');
+        return;
+      } finally {
+        setIsSaving(false);
+      }
     }
 
     if (!selectedType) {
@@ -298,6 +496,23 @@ export const DataSourcesModal: React.FC<DataSourcesModalProps> = ({
     } finally {
       setIsSaving(false);
     }
+  };
+
+  const handleEditNativeConnection = (connection: ExternalConnection) => {
+    setCatalogMode('native');
+    setStep('create');
+    setConfigName(connection.name);
+    setSelectedProvider(connection.provider);
+    setSelectedAuthType(connection.auth_type);
+    setNativeConfig(
+      connection.config_json && typeof connection.config_json === 'object'
+        ? Object.fromEntries(Object.entries(connection.config_json).map(([key, value]) => [key, String(value ?? '')]))
+        : {}
+    );
+    setEditingNativeId(connection.id);
+    setEditingId(null);
+    setConnectionStatus('idle');
+    setErrorMessage(null);
   };
 
   const handleEdit = (source: DataSource) => {
@@ -470,6 +685,18 @@ export const DataSourcesModal: React.FC<DataSourcesModalProps> = ({
     }
   };
 
+  const handleRemoveNative = async (id: number) => {
+    try {
+      await deleteExternalConnection(id);
+      setExternalConnections((prev) => prev.filter((item) => item.id !== id));
+      setConfirmDeleteNativeId(null);
+      setConfirmDeleteInput('');
+      setConfirmDeleteName('');
+    } catch (error) {
+      setErrorMessage(error instanceof Error ? error.message : 'Erro ao remover conexão nativa.');
+    }
+  };
+
   const renderConfigSnippet = (ds: DataSource) => {
     if (ds.type === 'mysql') {
       return (ds.config?.host as string) ?? null;
@@ -492,6 +719,17 @@ export const DataSourcesModal: React.FC<DataSourcesModalProps> = ({
       return (ds.config?.table as string) ?? (ds.config?.dataset as string) ?? null;
     }
     return null;
+  };
+
+  const renderNativeConnectionSnippet = (connection: ExternalConnection) => {
+    const config = connection.config_json && typeof connection.config_json === 'object' ? connection.config_json : {};
+    if (typeof config.account_hint === 'string' && config.account_hint.trim()) {
+      return config.account_hint;
+    }
+    if (typeof config.api_base_url === 'string' && config.api_base_url.trim()) {
+      return config.api_base_url;
+    }
+    return AUTH_TYPE_LABELS[connection.auth_type];
   };
 
   return (
@@ -524,13 +762,36 @@ export const DataSourcesModal: React.FC<DataSourcesModalProps> = ({
         <div className="flex-1 p-6 overflow-y-auto custom-scrollbar bg-[#F9FAFB]">
           {step === 'list' ? (
             <div className="space-y-6">
+              <div className="grid grid-cols-2 gap-2 rounded-2xl border border-gray-200 bg-white p-1">
+                {[
+                  { id: 'manual' as const, label: 'Fontes manuais', icon: Database },
+                  { id: 'native' as const, label: 'Plataformas nativas', icon: Link2 },
+                ].map((option) => (
+                  <button
+                    key={option.id}
+                    type="button"
+                    onClick={() => setCatalogMode(option.id)}
+                    className={`flex items-center justify-center gap-2 rounded-xl px-4 py-3 text-sm font-semibold transition-colors ${
+                      catalogMode === option.id
+                        ? 'bg-[#5B4DFF] text-white shadow-sm'
+                        : 'text-gray-500 hover:bg-gray-50'
+                    }`}
+                  >
+                    <option.icon size={16} />
+                    {option.label}
+                  </button>
+                ))}
+              </div>
+
               <div>
-                <h3 className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-4">Conexões Salvas</h3>
-                {isLoading ? (
+                <h3 className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-4">
+                  {catalogMode === 'manual' ? 'Conexões Salvas' : 'Plataformas conectadas'}
+                </h3>
+                {catalogMode === 'manual' ? isLoading : isLoadingExternalConnections ? (
                   <div className="text-center p-8 border-2 border-dashed border-gray-200 rounded-2xl text-gray-400 bg-white">
-                    Carregando fontes cadastradas...
+                    {catalogMode === 'manual' ? 'Carregando fontes cadastradas...' : 'Carregando conexões nativas...'}
                   </div>
-                ) : dataSources.length === 0 ? (
+                ) : catalogMode === 'manual' ? dataSources.length === 0 ? (
                   <div className="text-center p-8 border-2 border-dashed border-gray-200 rounded-2xl text-gray-400 bg-white">
                     Nenhuma fonte de dados configurada.
                   </div>
@@ -589,18 +850,71 @@ export const DataSourcesModal: React.FC<DataSourcesModalProps> = ({
                       </div>
                     ))}
                   </div>
+                ) : externalConnections.length === 0 ? (
+                  <div className="text-center p-8 border-2 border-dashed border-gray-200 rounded-2xl text-gray-400 bg-white">
+                    Nenhuma plataforma nativa configurada.
+                  </div>
+                ) : (
+                  <div className="space-y-3">
+                    {externalConnections.map((connection) => (
+                      <div
+                        key={connection.id}
+                        className="flex items-center justify-between rounded-2xl border border-gray-100 bg-white p-4 shadow-sm transition-all group hover:shadow-md"
+                      >
+                        <div className="flex items-center gap-4">
+                          <div className="rounded-xl bg-indigo-50 p-3 text-[#5B4DFF]">
+                            <Link2 size={20} />
+                          </div>
+                          <div>
+                            <div className="text-sm font-bold text-gray-800">{connection.name}</div>
+                            <div className="mt-0.5 flex items-center gap-2 text-xs text-gray-500">
+                              <span>{NATIVE_PROVIDER_OPTIONS.find((item) => item.id === connection.provider)?.label ?? connection.provider}</span>
+                              <span className="rounded bg-gray-100 px-1.5 text-gray-400">
+                                {renderNativeConnectionSnippet(connection)}
+                              </span>
+                            </div>
+                          </div>
+                        </div>
+
+                        <div className="flex items-center gap-3">
+                          <span className="rounded-full border border-amber-100 bg-amber-50 px-3 py-1 text-[10px] font-bold uppercase tracking-wide text-amber-600">
+                            {connection.status.toUpperCase()}
+                          </span>
+                          <button
+                            onClick={() => handleEditNativeConnection(connection)}
+                            className="rounded-full border border-[#DADFFF] bg-[#EEF0FF] px-3 py-1 text-[10px] font-bold uppercase tracking-wide text-[#5B4DFF]"
+                            title="Editar conexão"
+                          >
+                            Editar
+                          </button>
+                          <button
+                            onClick={() => {
+                              setConfirmDeleteNativeId(connection.id);
+                              setConfirmDeleteName(connection.name);
+                              setConfirmDeleteInput('');
+                            }}
+                            className="rounded-lg p-2 text-gray-300 opacity-0 transition-all group-hover:opacity-100 hover:bg-red-50 hover:text-red-500"
+                            title="Excluir conexão"
+                          >
+                            <Trash2 size={16} />
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
                 )}
               </div>
 
               <button 
                 onClick={() => {
                   setEditingId(null);
+                  setEditingNativeId(null);
                   setStep('create');
                 }}
                 className="w-full py-3.5 bg-[#5B4DFF] text-white font-semibold rounded-xl shadow-lg shadow-indigo-200 hover:bg-[#4B3DCC] hover:shadow-xl transition-all flex items-center justify-center gap-2"
               >
-                <Database size={18} />
-                Adicionar Nova Conexão
+                {catalogMode === 'manual' ? <Database size={18} /> : <Link2 size={18} />}
+                {catalogMode === 'manual' ? 'Adicionar Nova Conexão' : 'Adicionar Plataforma'}
               </button>
             </div>
           ) : (
@@ -608,6 +922,30 @@ export const DataSourcesModal: React.FC<DataSourcesModalProps> = ({
                <button onClick={() => setStep('list')} className="text-xs font-medium text-gray-500 hover:text-[#5B4DFF] mb-2 flex items-center gap-1 transition-colors">
                  &larr; Voltar para lista
                </button>
+
+               <div className="grid grid-cols-2 gap-2 rounded-2xl border border-gray-200 bg-white p-1">
+                 {[
+                   { id: 'manual' as const, label: 'Fontes manuais', icon: Database },
+                   { id: 'native' as const, label: 'Plataformas nativas', icon: Link2 },
+                 ].map((option) => (
+                   <button
+                     key={option.id}
+                     type="button"
+                     onClick={() => {
+                       setCatalogMode(option.id);
+                       setErrorMessage(null);
+                     }}
+                     className={`flex items-center justify-center gap-2 rounded-xl px-4 py-3 text-sm font-semibold transition-colors ${
+                       catalogMode === option.id
+                         ? 'bg-[#5B4DFF] text-white shadow-sm'
+                         : 'text-gray-500 hover:bg-gray-50'
+                     }`}
+                   >
+                     <option.icon size={16} />
+                     {option.label}
+                   </button>
+                 ))}
+               </div>
 
                <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100 space-y-6">
                  <div>
@@ -623,6 +961,7 @@ export const DataSourcesModal: React.FC<DataSourcesModalProps> = ({
                    />
                  </div>
 
+                 {catalogMode === 'manual' ? (
                  <div>
                    <label className="block text-xs font-bold text-gray-700 mb-3 uppercase tracking-wide">Tipo de Fonte</label>
                    <div className="grid grid-cols-4 gap-3">
@@ -651,8 +990,113 @@ export const DataSourcesModal: React.FC<DataSourcesModalProps> = ({
                      ))}
                    </div>
                  </div>
+                 ) : (
+                  <div className="space-y-6">
+                    <div>
+                      <label className="block text-xs font-bold text-gray-700 mb-3 uppercase tracking-wide">Plataforma</label>
+                      <div className="grid grid-cols-2 gap-3">
+                        {NATIVE_PROVIDER_OPTIONS.map((provider) => (
+                          <button
+                            key={provider.id}
+                            type="button"
+                            onClick={() => {
+                              setSelectedProvider(provider.id);
+                              setSelectedAuthType(provider.authTypes[0]);
+                              setErrorMessage(null);
+                            }}
+                            className={`rounded-2xl border p-4 text-left transition-all ${
+                              selectedProvider === provider.id
+                                ? 'border-[#5B4DFF] bg-[#5B4DFF]/5 ring-1 ring-[#5B4DFF]'
+                                : 'border-gray-200 hover:border-gray-300 hover:bg-gray-50'
+                            }`}
+                          >
+                            <div className="flex items-start justify-between gap-3">
+                              <div>
+                                <div className="text-sm font-bold text-gray-800">{provider.label}</div>
+                                <div className="mt-1 text-xs text-gray-500">{provider.description}</div>
+                              </div>
+                              <Link2 size={18} className={selectedProvider === provider.id ? 'text-[#5B4DFF]' : 'text-gray-300'} />
+                            </div>
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+
+                    {selectedProviderMeta && (
+                      <div className="rounded-2xl border border-gray-100 bg-gray-50 p-4">
+                        <div className="flex items-center gap-2 text-sm font-bold text-gray-800">
+                          <ShieldCheck size={16} className="text-gray-400" />
+                          Tipo de autenticação
+                        </div>
+                        <div className="mt-4 grid grid-cols-2 gap-3">
+                          {selectedProviderMeta.authTypes.map((authType) => (
+                            <button
+                              key={authType}
+                              type="button"
+                              onClick={() => setSelectedAuthType(authType)}
+                              className={`rounded-xl border px-4 py-3 text-sm font-semibold transition-all ${
+                                selectedAuthType === authType
+                                  ? 'border-[#5B4DFF] bg-white text-[#5B4DFF] ring-1 ring-[#5B4DFF]'
+                                  : 'border-gray-200 bg-white text-gray-500 hover:border-gray-300'
+                              }`}
+                            >
+                              {AUTH_TYPE_LABELS[authType]}
+                            </button>
+                          ))}
+                        </div>
+
+                        <div className="mt-5 space-y-4">
+                          {nativeFields.map((field) => (
+                            <div key={field.key}>
+                              <label className="mb-1 block text-[10px] font-bold uppercase text-gray-500">
+                                {field.label}
+                              </label>
+                              {field.multiline ? (
+                                <textarea
+                                  value={nativeConfig[field.key] ?? ''}
+                                  onChange={(event) =>
+                                    setNativeConfig((prev) => ({ ...prev, [field.key]: event.target.value }))
+                                  }
+                                  placeholder={field.placeholder}
+                                  className="h-28 w-full rounded-lg border border-gray-200 bg-white p-3 text-sm font-mono outline-none focus:border-[#5B4DFF]"
+                                  spellCheck={false}
+                                />
+                              ) : (
+                                <input
+                                  type={field.secret ? 'password' : 'text'}
+                                  value={nativeConfig[field.key] ?? ''}
+                                  onChange={(event) =>
+                                    setNativeConfig((prev) => ({ ...prev, [field.key]: event.target.value }))
+                                  }
+                                  placeholder={field.placeholder}
+                                  className="w-full rounded-lg border border-gray-200 bg-white p-2.5 text-sm outline-none focus:border-[#5B4DFF]"
+                                  autoCapitalize="none"
+                                  spellCheck={false}
+                                />
+                              )}
+                            </div>
+                          ))}
+                        </div>
+
+                        <div className="mt-4 rounded-xl border border-dashed border-indigo-100 bg-indigo-50/70 px-4 py-3 text-[12px] text-indigo-900">
+                          <div className="flex items-center gap-2 font-semibold">
+                            <KeyRound size={14} />
+                            Estrutura inicial
+                          </div>
+                          <p className="mt-2">
+                            Nesta primeira etapa a plataforma já registra a conexão nativa e o tipo de autenticação
+                            no backend. O próximo passo será plugar o fluxo real de OAuth / sync por API para cada
+                            provedor.
+                          </p>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                 )}
 
                  {/* MySQL Specific Fields */}
+                 {catalogMode === 'manual' && (
+                 <>
                  {selectedType === 'mysql' && (
                     <div className="pt-4 border-t border-gray-100 animate-in fade-in slide-in-from-top-2 duration-300">
                         <h4 className="text-sm font-bold text-gray-800 mb-4 flex items-center gap-2">
@@ -1241,6 +1685,8 @@ export const DataSourcesModal: React.FC<DataSourcesModalProps> = ({
                       </div>
                     </div>
                  )}
+                 </>
+                 )}
                </div>
 
                {errorMessage && (
@@ -1254,28 +1700,38 @@ export const DataSourcesModal: React.FC<DataSourcesModalProps> = ({
                  onClick={handleCreate}
                  disabled={
                    isSaving ||
-                   !selectedType ||
                    !configName.trim() ||
-                   (selectedType === 'mysql' && connectionStatus !== 'success') ||
-                   (selectedType === 'supabase' && connectionStatus !== 'success') ||
-                   (selectedType === 'google_sheets' &&
-                     (!googleConfig.spreadsheetId.trim() ||
-                      (googleConfig.worksheets.length === 0 && !googleConfig.worksheet.trim())))
-                   || (selectedType === 'bigquery' &&
-                     (!bigQueryConfig.projectId.trim() ||
-                      !bigQueryConfig.dataset.trim() ||
-                      (bigQueryConfig.tables.length === 0 && !bigQueryConfig.table.trim()) ||
-                      !bigQueryConfig.serviceAccountJson.trim()))
-                   || (selectedType === 'supabase' &&
-                     (!supabaseConfig.host.trim() ||
-                      !supabaseConfig.port.trim() ||
-                      !supabaseConfig.database.trim() ||
-                      !supabaseConfig.username.trim() ||
-                      !supabaseConfig.password.trim()))
+                   (catalogMode === 'manual' &&
+                     (!selectedType ||
+                      (selectedType === 'mysql' && connectionStatus !== 'success') ||
+                      (selectedType === 'supabase' && connectionStatus !== 'success') ||
+                      (selectedType === 'google_sheets' &&
+                        (!googleConfig.spreadsheetId.trim() ||
+                         (googleConfig.worksheets.length === 0 && !googleConfig.worksheet.trim()))) ||
+                      (selectedType === 'bigquery' &&
+                        (!bigQueryConfig.projectId.trim() ||
+                         !bigQueryConfig.dataset.trim() ||
+                         (bigQueryConfig.tables.length === 0 && !bigQueryConfig.table.trim()) ||
+                         !bigQueryConfig.serviceAccountJson.trim())) ||
+                      (selectedType === 'supabase' &&
+                        (!supabaseConfig.host.trim() ||
+                         !supabaseConfig.port.trim() ||
+                         !supabaseConfig.database.trim() ||
+                         !supabaseConfig.username.trim() ||
+                         !supabaseConfig.password.trim())))) ||
+                   (catalogMode === 'native' && !selectedProvider)
                  }
                  className="w-full py-3.5 bg-[#5B4DFF] text-white font-semibold rounded-xl shadow-lg shadow-indigo-200 hover:bg-[#4B3DCC] transition-all disabled:opacity-50 disabled:cursor-not-allowed disabled:shadow-none flex items-center justify-center gap-2"
                >
-                 {isSaving ? <Loader2 className="animate-spin" size={16} /> : editingId ? 'Salvar alterações' : 'Salvar e Conectar'}
+                 {isSaving ? (
+                   <Loader2 className="animate-spin" size={16} />
+                 ) : catalogMode === 'native' ? (
+                   editingNativeId ? 'Salvar conexão nativa' : 'Salvar plataforma'
+                 ) : editingId ? (
+                   'Salvar alterações'
+                 ) : (
+                   'Salvar e Conectar'
+                 )}
                </button>
             </div>
           )}
@@ -1291,7 +1747,7 @@ export const DataSourcesModal: React.FC<DataSourcesModalProps> = ({
         </button>
       </div>
 
-      {confirmDeleteId && (
+      {(confirmDeleteId || confirmDeleteNativeId) && (
         <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/40 px-4">
           <div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-2xl border border-gray-100">
             <h3 className="text-lg font-semibold text-gray-900">Excluir conexão</h3>
@@ -1308,6 +1764,7 @@ export const DataSourcesModal: React.FC<DataSourcesModalProps> = ({
               <button
                 onClick={() => {
                   setConfirmDeleteId(null);
+                  setConfirmDeleteNativeId(null);
                   setConfirmDeleteName('');
                   setConfirmDeleteInput('');
                 }}
@@ -1316,7 +1773,15 @@ export const DataSourcesModal: React.FC<DataSourcesModalProps> = ({
                 Cancelar
               </button>
               <button
-                onClick={() => confirmDeleteId && handleRemove(confirmDeleteId)}
+                onClick={() => {
+                  if (confirmDeleteId) {
+                    void handleRemove(confirmDeleteId);
+                    return;
+                  }
+                  if (confirmDeleteNativeId) {
+                    void handleRemoveNative(confirmDeleteNativeId);
+                  }
+                }}
                 disabled={confirmDeleteInput.trim().toLowerCase() !== 'excluir'}
                 className="px-4 py-2 text-sm rounded-xl bg-red-500 text-white font-semibold disabled:opacity-50 disabled:cursor-not-allowed"
               >
