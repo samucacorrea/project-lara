@@ -564,13 +564,13 @@ try {
                 exit;
             }
 
-            if ($method === 'GET') {
+            $subResource = $segments[2] ?? null;
+            $subResourceId = isset($segments[3]) && ctype_digit((string) $segments[3]) ? (int) $segments[3] : null;
+
+            if ($subResource === null && $method === 'GET') {
                 echo json_encode($existing, JSON_THROW_ON_ERROR);
                 exit;
             }
-
-            $subResource = $segments[2] ?? null;
-            $subResourceId = isset($segments[3]) && ctype_digit((string) $segments[3]) ? (int) $segments[3] : null;
 
             if ($subResource === 'preview' && $subResourceId === null && $method === 'GET') {
                 $limit = isset($_GET['limit']) ? (int) $_GET['limit'] : 20;
