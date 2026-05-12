@@ -108,6 +108,16 @@ const LAYOUT_CONFIG: Record<ReportLayout, { label: string; description: string; 
 
 const AUTOSAVE_INTERVAL_MS = 12000;
 
+const getCanvasWidthFromSettings = (
+  settings: CanvasSettings | null | undefined,
+  layout: ReportLayout
+): number => {
+  const configuredWidth = settings?.width;
+  return typeof configuredWidth === 'number' && configuredWidth > 0
+    ? configuredWidth
+    : LAYOUT_CONFIG[layout].width;
+};
+
 const clampWidgetStyleToWidth = (style: WidgetStyle, widthLimit: number): WidgetStyle => {
   const safeWidth = Math.min(style.width ?? widthLimit, widthLimit);
   const maxX = Math.max(0, widthLimit - safeWidth);
@@ -450,16 +460,18 @@ function AppContent() {
         const report = await fetchReport(slug, { isPublic: sharedMode });
         setSharedReportName(report.name ?? 'Relatório');
         const loadedLayout = (report.layout_type as ReportLayout) ?? 'desktop';
+        const loadedCanvasSettings = report.canvas_settings ?? defaultCanvasSettings;
+        const loadedCanvasWidth = getCanvasWidthFromSettings(loadedCanvasSettings, loadedLayout);
         setReportLayout(loadedLayout);
         const preparedWidgets = (report.widgets ?? []).map((widget) => ({
           ...widget,
-          style: clampWidgetStyleToWidth(widget.style, LAYOUT_CONFIG[loadedLayout].width),
+          style: clampWidgetStyleToWidth(widget.style, loadedCanvasWidth),
         }));
         setWidgets(preparedWidgets);
         setDashboardDataSourceId(report.data_source_id ? String(report.data_source_id) : '');
         setGlobalFilter(report.global_filter ?? defaultGlobalFilter);
         setIsDateFilterVisible(report.date_filter_visible ?? true);
-        setCanvasSettings(report.canvas_settings ?? defaultCanvasSettings);
+        setCanvasSettings(loadedCanvasSettings);
         setJoinConfig((report.join_config as JoinConfig) ?? { tables: [], joins: [] });
         setLastSavedReport(report);
         setIsSharedView(sharedMode);
@@ -1221,7 +1233,7 @@ function AppContent() {
     const minHeight = isFullscreen ? '100vh' : canvasSettings.height ?? 900;
     const type = canvasSettings.backgroundType;
     const hasCustomWidth = Boolean(canvasSettings.width);
-    const capWidthToViewport = previewMode && !isFullscreen;
+    const capWidthToViewport = previewMode && !isFullscreen && !isSharedView;
     const style: React.CSSProperties = {
       width: capWidthToViewport ? '100%' : widthCss,
       maxWidth: capWidthToViewport ? widthCss : isFullscreen || hasCustomWidth ? 'none' : '100%',
@@ -1258,7 +1270,7 @@ function AppContent() {
     }
 
     return style;
-  }, [canvasSettings, previewMode, reportLayout]);
+  }, [canvasSettings, isSharedView, previewMode, reportLayout]);
 
   useEffect(() => {
     const styleId = 'project-lara-custom-fonts';
@@ -2051,7 +2063,7 @@ function AppContent() {
         {/* Canvas */}
         <div 
           className={`flex-1 overflow-y-auto p-8 pt-0 relative ${
-            previewMode || isEditMode ? 'overflow-x-hidden' : 'overflow-x-auto'
+            isSharedView ? 'overflow-x-auto' : previewMode || isEditMode ? 'overflow-x-hidden' : 'overflow-x-auto'
           }`}
           onClick={() => setSelectedWidgetId(null)}
         >
