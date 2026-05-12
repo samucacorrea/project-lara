@@ -269,6 +269,18 @@ export interface ExternalConnection {
   updated_at?: string;
 }
 
+export interface ExternalConnectionAccount {
+  id: number;
+  connection_id: number;
+  external_account_id: string;
+  external_account_name: string;
+  external_account_type?: string | null;
+  is_selected: boolean;
+  metadata_json?: Record<string, unknown> | null;
+  created_at?: string;
+  updated_at?: string;
+}
+
 export type SourceDatasetKind = 'data_source' | 'external_connection';
 export type SourceDatasetType = 'raw' | 'normalized' | 'manual' | 'imported';
 export type SourceDatasetStatus = 'draft' | 'ready' | 'syncing' | 'error' | 'archived';

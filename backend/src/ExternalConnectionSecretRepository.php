@@ -26,4 +26,19 @@ final class ExternalConnectionSecretRepository
             ':secret_value' => $secretValue,
         ]);
     }
+
+    public function get(int $connectionId, string $secretKey): ?string
+    {
+        $statement = $this->connection->prepare(
+            'SELECT secret_value FROM external_connection_secrets WHERE connection_id = :connection_id AND secret_key = :secret_key LIMIT 1'
+        );
+        $statement->execute([
+            ':connection_id' => $connectionId,
+            ':secret_key' => trim($secretKey),
+        ]);
+
+        $value = $statement->fetchColumn();
+
+        return is_string($value) ? $value : null;
+    }
 }

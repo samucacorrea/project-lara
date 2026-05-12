@@ -16,7 +16,8 @@ final class GoogleOAuthService
     public function __construct(
         private readonly ExternalConnectionRepository $externalConnectionRepository,
         private readonly ExternalConnectionSecretRepository $secretRepository,
-        private readonly TokenService $tokenService
+        private readonly TokenService $tokenService,
+        private readonly ExternalAccountDiscoveryService $accountDiscoveryService
     ) {
     }
 
@@ -96,6 +97,12 @@ final class GoogleOAuthService
             'status' => 'connected',
             'config_json' => $config,
         ]);
+
+        try {
+            $this->accountDiscoveryService->sync($connectionId);
+        } catch (\Throwable) {
+            // Não invalida a conexão se a descoberta de contas falhar.
+        }
 
         return [
             'connection_id' => $connectionId,

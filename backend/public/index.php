@@ -14,6 +14,7 @@ use ProjectLara\DatasetNodeRepository;
 use ProjectLara\DatasetSelectedColumnRepository;
 use ProjectLara\DashboardSettingsRepository;
 use ProjectLara\ExternalConnectionRepository;
+use ProjectLara\ExternalConnectionAccountRepository;
 use ProjectLara\ExternalConnectionSecretRepository;
 use ProjectLara\ExtractorConnectorRepository;
 use ProjectLara\ExtractorJobRepository;
@@ -25,6 +26,7 @@ use ProjectLara\Services\DataSourceInspector;
 use ProjectLara\Services\DataQueryService;
 use ProjectLara\Services\DatasetBuilderService;
 use ProjectLara\Services\ExtractorService;
+use ProjectLara\Services\ExternalAccountDiscoveryService;
 use ProjectLara\Services\GoogleSheetsService;
 use ProjectLara\Services\GoogleOAuthService;
 use ProjectLara\Services\HubSpotOAuthService;
@@ -63,6 +65,7 @@ $reportRepository = new ReportRepository($connection);
 $calculatedMetricRepository = new CalculatedMetricRepository($connection);
 $userRepository = new UserRepository($connection);
 $externalConnectionRepository = new ExternalConnectionRepository($connection);
+$externalConnectionAccountRepository = new ExternalConnectionAccountRepository($connection);
 $externalConnectionSecretRepository = new ExternalConnectionSecretRepository($connection);
 $sourceDatasetRepository = new SourceDatasetRepository($connection);
 $datasetDefinitionRepository = new DatasetDefinitionRepository($connection);
@@ -72,10 +75,15 @@ $datasetSelectedColumnRepository = new DatasetSelectedColumnRepository($connecti
 $extractorConnectorRepository = new ExtractorConnectorRepository($connection);
 $extractorJobRepository = new ExtractorJobRepository($connection);
 $tokenService = new TokenService(getenv('APP_KEY') ?: null);
-$hubSpotOAuthService = new HubSpotOAuthService($externalConnectionRepository, $externalConnectionSecretRepository, $tokenService);
-$googleOAuthService = new GoogleOAuthService($externalConnectionRepository, $externalConnectionSecretRepository, $tokenService);
-$metaOAuthService = new MetaOAuthService($externalConnectionRepository, $externalConnectionSecretRepository, $tokenService);
-$tikTokOAuthService = new TikTokOAuthService($externalConnectionRepository, $externalConnectionSecretRepository, $tokenService);
+$externalAccountDiscoveryService = new ExternalAccountDiscoveryService(
+    $externalConnectionRepository,
+    $externalConnectionSecretRepository,
+    $externalConnectionAccountRepository
+);
+$hubSpotOAuthService = new HubSpotOAuthService($externalConnectionRepository, $externalConnectionSecretRepository, $tokenService, $externalAccountDiscoveryService);
+$googleOAuthService = new GoogleOAuthService($externalConnectionRepository, $externalConnectionSecretRepository, $tokenService, $externalAccountDiscoveryService);
+$metaOAuthService = new MetaOAuthService($externalConnectionRepository, $externalConnectionSecretRepository, $tokenService, $externalAccountDiscoveryService);
+$tikTokOAuthService = new TikTokOAuthService($externalConnectionRepository, $externalConnectionSecretRepository, $tokenService, $externalAccountDiscoveryService);
 $cache = RedisCache::fromEnv();
 $queryService = new DataQueryService($repository, $inspector, $googleSheetsService, $bigQueryService, $cache);
 $extractorService = new ExtractorService($connection, $extractorConnectorRepository, $extractorJobRepository);
@@ -628,6 +636,17 @@ try {
                     ]);
                     exit;
                 }
+            }
+
+            if ($subResource === 'accounts' && $method === 'GET') {
+                echo json_encode($externalConnectionAccountRepository->listByConnection($resourceId), JSON_THROW_ON_ERROR);
+                exit;
+            }
+
+            if ($subResource === 'sync-accounts' && $method === 'POST') {
+                $accounts = $externalAccountDiscoveryService->sync($resourceId);
+                echo json_encode($accounts, JSON_THROW_ON_ERROR);
+                exit;
             }
 
             if ($subResource === null && $method === 'GET') {

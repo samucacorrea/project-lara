@@ -5,6 +5,7 @@ import {
   DataSourcePayload,
   DataSourceType,
   ExternalConnection,
+  ExternalConnectionAccount,
   ExternalConnectionAuthType,
   ExternalConnectionProvider,
 } from '../types';
@@ -13,7 +14,9 @@ import {
   authorizeExternalConnection,
   createExternalConnection,
   deleteExternalConnection,
+  listExternalConnectionAccounts,
   listExternalConnections,
+  syncExternalConnectionAccounts,
 } from '../services/datasetBuilderService';
 
 interface DataSourcesModalProps {
@@ -173,7 +176,9 @@ export const DataSourcesModal: React.FC<DataSourcesModalProps> = ({
   const [googlePreviewColumns, setGooglePreviewColumns] = useState<Record<string, Array<{ name: string; type: string }>>>({});
   const [googleColumnsLoading, setGoogleColumnsLoading] = useState(false);
   const [externalConnections, setExternalConnections] = useState<ExternalConnection[]>([]);
+  const [externalConnectionAccounts, setExternalConnectionAccounts] = useState<Record<number, ExternalConnectionAccount[]>>({});
   const [isLoadingExternalConnections, setIsLoadingExternalConnections] = useState(false);
+  const [syncingAccountsId, setSyncingAccountsId] = useState<number | null>(null);
 
   useEffect(() => {
     if (isOpen) {
@@ -196,6 +201,17 @@ export const DataSourcesModal: React.FC<DataSourcesModalProps> = ({
         setIsLoadingExternalConnections(true);
         const connections = await listExternalConnections();
         setExternalConnections(Array.isArray(connections) ? connections : []);
+        const accountEntries = await Promise.all(
+          (Array.isArray(connections) ? connections : []).map(async (connection) => {
+            try {
+              const accounts = await listExternalConnectionAccounts(connection.id);
+              return [connection.id, accounts] as const;
+            } catch {
+              return [connection.id, []] as const;
+            }
+          })
+        );
+        setExternalConnectionAccounts(Object.fromEntries(accountEntries));
       } catch (error) {
         setErrorMessage(error instanceof Error ? error.message : 'Erro ao carregar conexões nativas.');
       } finally {
@@ -569,6 +585,11 @@ export const DataSourcesModal: React.FC<DataSourcesModalProps> = ({
     try {
       await deleteExternalConnection(id);
       setExternalConnections((prev) => prev.filter((item) => item.id !== id));
+      setExternalConnectionAccounts((prev) => {
+        const next = { ...prev };
+        delete next[id];
+        return next;
+      });
       setConfirmDeleteNativeId(null);
       setConfirmDeleteInput('');
       setConfirmDeleteName('');
@@ -612,6 +633,19 @@ export const DataSourcesModal: React.FC<DataSourcesModalProps> = ({
       setConnectionStatus('error');
     } finally {
       setIsSaving(false);
+    }
+  };
+
+  const handleSyncNativeAccounts = async (connectionId: number) => {
+    try {
+      setSyncingAccountsId(connectionId);
+      setErrorMessage(null);
+      const accounts = await syncExternalConnectionAccounts(connectionId);
+      setExternalConnectionAccounts((prev) => ({ ...prev, [connectionId]: accounts }));
+    } catch (error) {
+      setErrorMessage(error instanceof Error ? error.message : 'Erro ao sincronizar contas da conexão.');
+    } finally {
+      setSyncingAccountsId(null);
     }
   };
 
@@ -770,41 +804,71 @@ export const DataSourcesModal: React.FC<DataSourcesModalProps> = ({
                     {externalConnections.map((connection) => (
                       <div
                         key={connection.id}
-                        className="flex items-center justify-between rounded-2xl border border-gray-100 bg-white p-4 shadow-sm transition-all group hover:shadow-md"
+                        className="rounded-2xl border border-gray-100 bg-white p-4 shadow-sm transition-all group hover:shadow-md"
                       >
-                        <div className="flex items-center gap-4">
-                          <div className="rounded-xl bg-indigo-50 p-3 text-[#5B4DFF]">
-                            <Link2 size={20} />
-                          </div>
-                          <div>
-                            <div className="text-sm font-bold text-gray-800">{connection.name}</div>
-                            <div className="mt-0.5 flex items-center gap-2 text-xs text-gray-500">
-                              <span>{NATIVE_PROVIDER_OPTIONS.find((item) => item.id === connection.provider)?.label ?? connection.provider}</span>
-                              <span className="rounded bg-gray-100 px-1.5 text-gray-400">
-                                {renderNativeConnectionSnippet(connection)}
-                              </span>
+                        <div className="flex items-start justify-between gap-4">
+                          <div className="flex items-center gap-4">
+                            <div className="rounded-xl bg-indigo-50 p-3 text-[#5B4DFF]">
+                              <Link2 size={20} />
                             </div>
+                            <div>
+                              <div className="text-sm font-bold text-gray-800">{connection.name}</div>
+                              <div className="mt-0.5 flex items-center gap-2 text-xs text-gray-500">
+                                <span>{NATIVE_PROVIDER_OPTIONS.find((item) => item.id === connection.provider)?.label ?? connection.provider}</span>
+                                <span className="rounded bg-gray-100 px-1.5 text-gray-400">
+                                  {renderNativeConnectionSnippet(connection)}
+                                </span>
+                              </div>
+                            </div>
+                          </div>
+                          <div className="flex items-center gap-3">
+                            <span className="rounded-full border border-amber-100 bg-amber-50 px-3 py-1 text-[10px] font-bold uppercase tracking-wide text-amber-600">
+                              {connection.status.toUpperCase()}
+                            </span>
+                            <span className="rounded-full border border-[#DADFFF] bg-[#EEF0FF] px-3 py-1 text-[10px] font-bold uppercase tracking-wide text-[#5B4DFF]">
+                              {AUTH_TYPE_LABELS[connection.auth_type]}
+                            </span>
+                            <button
+                              onClick={() => {
+                                setConfirmDeleteNativeId(connection.id);
+                                setConfirmDeleteName(connection.name);
+                                setConfirmDeleteInput('');
+                              }}
+                              className="rounded-lg p-2 text-gray-300 opacity-0 transition-all group-hover:opacity-100 hover:bg-red-50 hover:text-red-500"
+                              title="Excluir conexão"
+                            >
+                              <Trash2 size={16} />
+                            </button>
                           </div>
                         </div>
 
-                        <div className="flex items-center gap-3">
-                          <span className="rounded-full border border-amber-100 bg-amber-50 px-3 py-1 text-[10px] font-bold uppercase tracking-wide text-amber-600">
-                            {connection.status.toUpperCase()}
-                          </span>
-                          <span className="rounded-full border border-[#DADFFF] bg-[#EEF0FF] px-3 py-1 text-[10px] font-bold uppercase tracking-wide text-[#5B4DFF]">
-                            {AUTH_TYPE_LABELS[connection.auth_type]}
-                          </span>
-                          <button
-                            onClick={() => {
-                              setConfirmDeleteNativeId(connection.id);
-                              setConfirmDeleteName(connection.name);
-                              setConfirmDeleteInput('');
-                            }}
-                            className="rounded-lg p-2 text-gray-300 opacity-0 transition-all group-hover:opacity-100 hover:bg-red-50 hover:text-red-500"
-                            title="Excluir conexão"
-                          >
-                            <Trash2 size={16} />
-                          </button>
+                        <div className="mt-4 rounded-xl border border-gray-100 bg-gray-50 p-3">
+                          <div className="flex items-center justify-between gap-3">
+                            <div className="text-xs font-semibold text-gray-600">
+                              Contas descobertas: {externalConnectionAccounts[connection.id]?.length ?? 0}
+                            </div>
+                            <button
+                              type="button"
+                              onClick={() => void handleSyncNativeAccounts(connection.id)}
+                              disabled={syncingAccountsId === connection.id}
+                              className="rounded-lg border border-indigo-200 bg-white px-3 py-2 text-[11px] font-semibold text-[#5B4DFF] disabled:cursor-not-allowed disabled:opacity-50"
+                            >
+                              {syncingAccountsId === connection.id ? 'Sincronizando...' : 'Sincronizar contas'}
+                            </button>
+                          </div>
+
+                          {(externalConnectionAccounts[connection.id]?.length ?? 0) > 0 && (
+                            <div className="mt-3 flex flex-wrap gap-2">
+                              {(externalConnectionAccounts[connection.id] ?? []).slice(0, 6).map((account) => (
+                                <span
+                                  key={account.id}
+                                  className="inline-flex items-center gap-2 rounded-full bg-white px-3 py-1 text-[11px] font-medium text-gray-600 border border-gray-200"
+                                >
+                                  {account.external_account_name}
+                                </span>
+                              ))}
+                            </div>
+                          )}
                         </div>
                       </div>
                     ))}

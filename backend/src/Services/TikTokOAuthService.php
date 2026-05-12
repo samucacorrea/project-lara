@@ -16,7 +16,8 @@ final class TikTokOAuthService
     public function __construct(
         private readonly ExternalConnectionRepository $externalConnectionRepository,
         private readonly ExternalConnectionSecretRepository $secretRepository,
-        private readonly TokenService $tokenService
+        private readonly TokenService $tokenService,
+        private readonly ExternalAccountDiscoveryService $accountDiscoveryService
     ) {
     }
 
@@ -92,6 +93,12 @@ final class TikTokOAuthService
             'status' => 'connected',
             'config_json' => $config,
         ]);
+
+        try {
+            $this->accountDiscoveryService->sync($connectionId);
+        } catch (\Throwable) {
+            // mantém a conexão ativa mesmo se a descoberta de advertiser falhar
+        }
 
         return [
             'connection_id' => $connectionId,

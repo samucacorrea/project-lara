@@ -6,6 +6,7 @@ import {
   DatasetPublishResponse,
   DatasetSelectedColumn,
   ExternalConnection,
+  ExternalConnectionAccount,
   SourceDataset,
 } from '../types';
 import { httpRequest } from './httpClient';
@@ -111,6 +112,22 @@ export async function authorizeExternalConnection(id: number): Promise<{ authori
     method: 'POST',
     label: 'AuthorizeExternalConnection',
   });
+}
+
+export async function listExternalConnectionAccounts(id: number): Promise<ExternalConnectionAccount[]> {
+  const response = await httpRequest<unknown>(`/external-connections/${id}/accounts`, {
+    method: 'GET',
+    label: 'ListExternalConnectionAccounts',
+  });
+  return ensureArrayResponse<ExternalConnectionAccount>(response, 'ListExternalConnectionAccounts');
+}
+
+export async function syncExternalConnectionAccounts(id: number): Promise<ExternalConnectionAccount[]> {
+  const response = await httpRequest<unknown>(`/external-connections/${id}/sync-accounts`, {
+    method: 'POST',
+    label: 'SyncExternalConnectionAccounts',
+  });
+  return ensureArrayResponse<ExternalConnectionAccount>(response, 'SyncExternalConnectionAccounts');
 }
 
 export async function listSourceDatasets(sourceKind?: string, sourceRefId?: number): Promise<SourceDataset[]> {

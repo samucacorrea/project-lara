@@ -13,7 +13,8 @@ final class MetaOAuthService
     public function __construct(
         private readonly ExternalConnectionRepository $externalConnectionRepository,
         private readonly ExternalConnectionSecretRepository $secretRepository,
-        private readonly TokenService $tokenService
+        private readonly TokenService $tokenService,
+        private readonly ExternalAccountDiscoveryService $accountDiscoveryService
     ) {
     }
 
@@ -89,6 +90,12 @@ final class MetaOAuthService
             'status' => 'connected',
             'config_json' => $config,
         ]);
+
+        try {
+            $this->accountDiscoveryService->sync($connectionId);
+        } catch (\Throwable) {
+            // mantém o OAuth concluído mesmo se o fetch de contas falhar
+        }
 
         return [
             'connection_id' => $connectionId,
