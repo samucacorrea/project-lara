@@ -28,6 +28,8 @@ use ProjectLara\Services\ExtractorService;
 use ProjectLara\Services\GoogleSheetsService;
 use ProjectLara\Services\GoogleOAuthService;
 use ProjectLara\Services\HubSpotOAuthService;
+use ProjectLara\Services\MetaOAuthService;
+use ProjectLara\Services\TikTokOAuthService;
 use ProjectLara\Services\BigQueryService;
 use ProjectLara\Services\TokenService;
 use ProjectLara\Services\WarehouseService;
@@ -72,6 +74,8 @@ $extractorJobRepository = new ExtractorJobRepository($connection);
 $tokenService = new TokenService(getenv('APP_KEY') ?: null);
 $hubSpotOAuthService = new HubSpotOAuthService($externalConnectionRepository, $externalConnectionSecretRepository, $tokenService);
 $googleOAuthService = new GoogleOAuthService($externalConnectionRepository, $externalConnectionSecretRepository, $tokenService);
+$metaOAuthService = new MetaOAuthService($externalConnectionRepository, $externalConnectionSecretRepository, $tokenService);
+$tikTokOAuthService = new TikTokOAuthService($externalConnectionRepository, $externalConnectionSecretRepository, $tokenService);
 $cache = RedisCache::fromEnv();
 $queryService = new DataQueryService($repository, $inspector, $googleSheetsService, $bigQueryService, $cache);
 $extractorService = new ExtractorService($connection, $extractorConnectorRepository, $extractorJobRepository);
@@ -368,6 +372,68 @@ $resourceId = isset($segments[1]) && ctype_digit((string) $segments[1]) ? (int) 
 $debugEnabled = project_lara_debug_enabled();
 
 try {
+    if ($resource === 'oauth' && ($segments[1] ?? '') === 'tiktok' && ($segments[2] ?? '') === 'callback' && $method === 'GET') {
+        $authCode = trim((string) ($_GET['auth_code'] ?? ($_GET['code'] ?? '')));
+        $state = trim((string) ($_GET['state'] ?? ''));
+        $frontendUrl = rtrim((string) getenv('VITE_APP_URL'), '/');
+        $fallbackPath = $frontendUrl !== '' ? $frontendUrl . '/dashboards/new' : '/';
+
+        if ($authCode === '' || $state === '') {
+            header('Location: ' . $fallbackPath . '?native_connection=tiktok_ads&status=error', true, 302);
+            exit;
+        }
+
+        try {
+            $result = $tikTokOAuthService->handleCallback($authCode, $state);
+            header(
+                'Location: ' . $fallbackPath
+                . '?native_connection=' . urlencode((string) $result['provider'])
+                . '&status=success&connection_id='
+                . urlencode((string) $result['connection_id']),
+                true,
+                302
+            );
+            exit;
+        } catch (\Throwable $callbackException) {
+            Logger::write('tiktok_oauth_callback_failed', [
+                'message' => $callbackException->getMessage(),
+            ]);
+            header('Location: ' . $fallbackPath . '?native_connection=tiktok_ads&status=error', true, 302);
+            exit;
+        }
+    }
+
+    if ($resource === 'oauth' && ($segments[1] ?? '') === 'meta' && ($segments[2] ?? '') === 'callback' && $method === 'GET') {
+        $code = trim((string) ($_GET['code'] ?? ''));
+        $state = trim((string) ($_GET['state'] ?? ''));
+        $frontendUrl = rtrim((string) getenv('VITE_APP_URL'), '/');
+        $fallbackPath = $frontendUrl !== '' ? $frontendUrl . '/dashboards/new' : '/';
+
+        if ($code === '' || $state === '') {
+            header('Location: ' . $fallbackPath . '?native_connection=meta_ads&status=error', true, 302);
+            exit;
+        }
+
+        try {
+            $result = $metaOAuthService->handleCallback($code, $state);
+            header(
+                'Location: ' . $fallbackPath
+                . '?native_connection=' . urlencode((string) $result['provider'])
+                . '&status=success&connection_id='
+                . urlencode((string) $result['connection_id']),
+                true,
+                302
+            );
+            exit;
+        } catch (\Throwable $callbackException) {
+            Logger::write('meta_oauth_callback_failed', [
+                'message' => $callbackException->getMessage(),
+            ]);
+            header('Location: ' . $fallbackPath . '?native_connection=meta_ads&status=error', true, 302);
+            exit;
+        }
+    }
+
     if ($resource === 'oauth' && ($segments[1] ?? '') === 'google' && ($segments[2] ?? '') === 'callback' && $method === 'GET') {
         $code = trim((string) ($_GET['code'] ?? ''));
         $state = trim((string) ($_GET['state'] ?? ''));
@@ -542,7 +608,19 @@ try {
                     exit;
                 }
 
-                if (!in_array($provider, ['hubspot', 'google_analytics', 'google_ads'], true)) {
+                if ($provider === 'meta_ads') {
+                    $authorizationUrl = $metaOAuthService->buildAuthorizationUrl($existing, $authUser);
+                    echo json_encode(['authorization_url' => $authorizationUrl], JSON_THROW_ON_ERROR);
+                    exit;
+                }
+
+                if ($provider === 'tiktok_ads') {
+                    $authorizationUrl = $tikTokOAuthService->buildAuthorizationUrl($existing, $authUser);
+                    echo json_encode(['authorization_url' => $authorizationUrl], JSON_THROW_ON_ERROR);
+                    exit;
+                }
+
+                if (!in_array($provider, ['hubspot', 'google_analytics', 'google_ads', 'meta_ads', 'tiktok_ads'], true)) {
                     http_response_code(501);
                     echo json_encode([
                         'error' => 'provider_not_implemented',

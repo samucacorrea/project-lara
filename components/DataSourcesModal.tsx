@@ -608,11 +608,7 @@ export const DataSourcesModal: React.FC<DataSourcesModalProps> = ({
       window.location.href = authorization.authorization_url;
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Erro ao iniciar conexão nativa.';
-      if (provider === 'meta_ads' || provider === 'tiktok_ads') {
-        setErrorMessage(`${message} Esta plataforma será a próxima da fila.`);
-      } else {
-        setErrorMessage(message);
-      }
+      setErrorMessage(message);
       setConnectionStatus('error');
     } finally {
       setIsSaving(false);
