@@ -1078,7 +1078,7 @@ export const DataSourcesModal: React.FC<DataSourcesModalProps> = ({
                             </button>
                         </div>
                         <p className="text-[10px] text-gray-400 mt-2 text-center">
-                           Os dados são enviados criptografados e armazenados no backend do Project Lara.
+                           Os dados são enviados criptografados e armazenados no backend da plataforma.
                         </p>
                     </div>
                  )}
@@ -1452,7 +1452,7 @@ export const DataSourcesModal: React.FC<DataSourcesModalProps> = ({
                             </li>
                             <li>
                               No BigQuery, conceda ao e-mail da conta de serviço permissão{' '}
-                              <em>BigQuery Data Viewer</em> (ou equivalente) no dataset para que o Project Lara possa
+                              <em>BigQuery Data Viewer</em> (ou equivalente) no dataset para que a plataforma possa
                               ler os dados.
                             </li>
                           </ol>

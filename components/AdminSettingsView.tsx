@@ -65,7 +65,7 @@ export const AdminSettingsView: React.FC<AdminSettingsViewProps> = ({ settings, 
       setIsSavingBranding(true);
       setBrandingError(null);
       const updated = await updateAppSettings({
-        tool_name: toolName.trim() || 'Project Lara',
+        tool_name: toolName.trim() || 'Aplicação',
         logo_url: logoUrl.trim() || null,
         favicon_url: faviconUrl.trim() || null,
       });
@@ -213,7 +213,7 @@ export const AdminSettingsView: React.FC<AdminSettingsViewProps> = ({ settings, 
                     {logoUrl ? <img src={logoUrl} alt="Logo" className="w-full h-full object-contain" /> : 'Logo'}
                   </div>
                   <div>
-                    <p className="text-lg font-bold text-slate-800">{toolName || 'Project Lara'}</p>
+                    <p className="text-lg font-bold text-slate-800">{toolName || 'Aplicação'}</p>
                     <p className="text-xs text-gray-400">Brand da plataforma</p>
                   </div>
                 </div>

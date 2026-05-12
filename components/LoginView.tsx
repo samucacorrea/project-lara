@@ -6,7 +6,18 @@ interface LoginViewProps {
   logoUrl?: string | null;
 }
 
-export const LoginView: React.FC<LoginViewProps> = ({ toolName = 'Project Lara', logoUrl }) => {
+const getInitials = (value: string) => {
+  const parts = value
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean)
+    .slice(0, 2);
+
+  if (parts.length === 0) return 'AP';
+  return parts.map((part) => part.charAt(0).toUpperCase()).join('');
+};
+
+export const LoginView: React.FC<LoginViewProps> = ({ toolName = 'Aplicação', logoUrl }) => {
   const { login } = useAuth();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -33,7 +44,7 @@ export const LoginView: React.FC<LoginViewProps> = ({ toolName = 'Project Lara',
         <div>
           <div className="flex items-center gap-3 mb-2">
             <div className="w-12 h-12 rounded-2xl bg-[#5B4DFF]/10 overflow-hidden flex items-center justify-center">
-              {logoUrl ? <img src={logoUrl} alt={toolName} className="w-full h-full object-contain" /> : <span className="text-[#5B4DFF] font-bold">PL</span>}
+              {logoUrl ? <img src={logoUrl} alt={toolName} className="w-full h-full object-contain" /> : <span className="text-[#5B4DFF] font-bold">{getInitials(toolName)}</span>}
             </div>
             <h1 className="text-2xl font-bold text-gray-900">{toolName}</h1>
           </div>

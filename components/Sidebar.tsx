@@ -67,7 +67,7 @@ export const Sidebar: React.FC<
   onNavigateView,
   collapsed = false,
   onToggleCollapse,
-  toolName = 'Project Lara',
+  toolName = 'Aplicação',
   logoUrl,
   userRole,
 }) => {

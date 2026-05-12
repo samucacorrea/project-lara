@@ -33,7 +33,7 @@ const defaultRolePermissions = {
 
 const normalize = (payload: Record<string, any>): AppSettings => ({
   id: payload.id,
-  tool_name: payload.tool_name ?? 'Project Lara',
+  tool_name: payload.tool_name ?? 'Aplicação',
   logo_url: payload.logo_url ?? null,
   favicon_url: payload.favicon_url ?? null,
   role_permissions: payload.role_permissions ?? defaultRolePermissions,

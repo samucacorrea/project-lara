@@ -175,7 +175,7 @@ function AppContent() {
   const [isDataModalOpen, setIsDataModalOpen] = useState(false);
   const [isSchemaModalOpen, setIsSchemaModalOpen] = useState(false);
   const [appSettings, setAppSettings] = useState<AppSettings>({
-    tool_name: 'Project Lara',
+    tool_name: 'Aplicação',
     logo_url: null,
     favicon_url: null,
     role_permissions: {
@@ -525,7 +525,9 @@ function AppContent() {
   }, []);
 
   useEffect(() => {
-    document.title = appSettings.tool_name || 'Project Lara';
+    const toolName = appSettings.tool_name || 'Aplicação';
+    const dashboardName = sharedReportName?.trim() || lastSavedReport?.name?.trim() || '';
+    document.title = dashboardName ? `${dashboardName} | ${toolName}` : toolName;
     if (appSettings.favicon_url) {
       let link = document.querySelector("link[rel*='icon']") as HTMLLinkElement | null;
       if (!link) {
@@ -535,7 +537,7 @@ function AppContent() {
       }
       link.href = appSettings.favicon_url;
     }
-  }, [appSettings.favicon_url, appSettings.tool_name]);
+  }, [appSettings.favicon_url, appSettings.tool_name, lastSavedReport?.name, sharedReportName]);
 
   useEffect(() => {
     if (!user) return;
@@ -1428,7 +1430,7 @@ function AppContent() {
                   </div>
                   <div>
                     <p className="text-sm font-semibold text-gray-900">{appSettings.tool_name}</p>
-                    <p className="text-xs text-gray-400">Painéis e relatórios</p>
+                    <p className="text-xs text-gray-400">{appSettings.tool_name}</p>
                   </div>
                 </>
               )}
@@ -1485,7 +1487,7 @@ function AppContent() {
 
           <div className="mt-auto p-6">
             <div className="rounded-2xl border border-gray-200 p-4 bg-gray-50">
-              <p className="text-xs text-gray-500">Central em desenvolvimento.</p>
+              <p className="text-xs text-gray-500">{appSettings.tool_name}</p>
               <div className="mt-2 h-1 rounded-full bg-gray-200 overflow-hidden">
                 <div className="h-full w-2/3 bg-[#5B4DFF]" />
               </div>
@@ -1702,7 +1704,7 @@ function AppContent() {
                   </div>
                   <div>
                     <p className="text-sm font-semibold text-gray-900">{appSettings.tool_name}</p>
-                    <p className="text-xs text-gray-400">Painéis e relatórios</p>
+                    <p className="text-xs text-gray-400">{appSettings.tool_name}</p>
                   </div>
                 </>
               )}
@@ -1782,7 +1784,7 @@ function AppContent() {
                   </div>
                   <div>
                     <p className="text-sm font-semibold text-gray-900">{appSettings.tool_name}</p>
-                    <p className="text-xs text-gray-400">Painéis e relatórios</p>
+                    <p className="text-xs text-gray-400">{appSettings.tool_name}</p>
                   </div>
                 </>
               )}
