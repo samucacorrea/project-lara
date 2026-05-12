@@ -10,6 +10,7 @@ import {
 } from '../types';
 import { previewDataSourceColumns } from '../services/dataSourcesService';
 import {
+  authorizeExternalConnection,
   createExternalConnection,
   deleteExternalConnection,
   listExternalConnections,
@@ -584,23 +585,34 @@ export const DataSourcesModal: React.FC<DataSourcesModalProps> = ({
       setIsSaving(true);
       setErrorMessage(null);
 
-      const savedConnection = await createExternalConnection({
-        name: providerMeta.label,
-        provider,
-        auth_type: providerMeta.authTypes[0],
-        status: 'draft',
-        config_json: {
-          connection_mode: 'oauth_button',
-          provider_label: providerMeta.label,
-          pending_authorization: true,
-        },
-      });
+      const existingConnection = externalConnections.find((item) => item.provider === provider);
+      const savedConnection = existingConnection
+        ? existingConnection
+        : await createExternalConnection({
+            name: providerMeta.label,
+            provider,
+            auth_type: providerMeta.authTypes[0],
+            status: 'draft',
+            config_json: {
+              connection_mode: 'oauth_button',
+              provider_label: providerMeta.label,
+              pending_authorization: true,
+            },
+          });
 
-      setExternalConnections((prev) => [savedConnection, ...prev].sort((a, b) => b.id - a.id));
-      setStep('list');
-      setCatalogMode('native');
+      if (!existingConnection) {
+        setExternalConnections((prev) => [savedConnection, ...prev].sort((a, b) => b.id - a.id));
+      }
+
+      const authorization = await authorizeExternalConnection(savedConnection.id);
+      window.location.href = authorization.authorization_url;
     } catch (error) {
-      setErrorMessage(error instanceof Error ? error.message : 'Erro ao iniciar conexão nativa.');
+      const message = error instanceof Error ? error.message : 'Erro ao iniciar conexão nativa.';
+      if (provider === 'meta_ads' || provider === 'tiktok_ads') {
+        setErrorMessage(`${message} Esta plataforma será a próxima da fila.`);
+      } else {
+        setErrorMessage(message);
+      }
       setConnectionStatus('error');
     } finally {
       setIsSaving(false);

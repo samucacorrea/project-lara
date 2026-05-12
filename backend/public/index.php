@@ -14,6 +14,7 @@ use ProjectLara\DatasetNodeRepository;
 use ProjectLara\DatasetSelectedColumnRepository;
 use ProjectLara\DashboardSettingsRepository;
 use ProjectLara\ExternalConnectionRepository;
+use ProjectLara\ExternalConnectionSecretRepository;
 use ProjectLara\ExtractorConnectorRepository;
 use ProjectLara\ExtractorJobRepository;
 use ProjectLara\ReportRepository;
@@ -25,6 +26,8 @@ use ProjectLara\Services\DataQueryService;
 use ProjectLara\Services\DatasetBuilderService;
 use ProjectLara\Services\ExtractorService;
 use ProjectLara\Services\GoogleSheetsService;
+use ProjectLara\Services\GoogleOAuthService;
+use ProjectLara\Services\HubSpotOAuthService;
 use ProjectLara\Services\BigQueryService;
 use ProjectLara\Services\TokenService;
 use ProjectLara\Services\WarehouseService;
@@ -58,6 +61,7 @@ $reportRepository = new ReportRepository($connection);
 $calculatedMetricRepository = new CalculatedMetricRepository($connection);
 $userRepository = new UserRepository($connection);
 $externalConnectionRepository = new ExternalConnectionRepository($connection);
+$externalConnectionSecretRepository = new ExternalConnectionSecretRepository($connection);
 $sourceDatasetRepository = new SourceDatasetRepository($connection);
 $datasetDefinitionRepository = new DatasetDefinitionRepository($connection);
 $datasetNodeRepository = new DatasetNodeRepository($connection);
@@ -66,6 +70,8 @@ $datasetSelectedColumnRepository = new DatasetSelectedColumnRepository($connecti
 $extractorConnectorRepository = new ExtractorConnectorRepository($connection);
 $extractorJobRepository = new ExtractorJobRepository($connection);
 $tokenService = new TokenService(getenv('APP_KEY') ?: null);
+$hubSpotOAuthService = new HubSpotOAuthService($externalConnectionRepository, $externalConnectionSecretRepository, $tokenService);
+$googleOAuthService = new GoogleOAuthService($externalConnectionRepository, $externalConnectionSecretRepository, $tokenService);
 $cache = RedisCache::fromEnv();
 $queryService = new DataQueryService($repository, $inspector, $googleSheetsService, $bigQueryService, $cache);
 $extractorService = new ExtractorService($connection, $extractorConnectorRepository, $extractorJobRepository);
@@ -362,6 +368,67 @@ $resourceId = isset($segments[1]) && ctype_digit((string) $segments[1]) ? (int) 
 $debugEnabled = project_lara_debug_enabled();
 
 try {
+    if ($resource === 'oauth' && ($segments[1] ?? '') === 'google' && ($segments[2] ?? '') === 'callback' && $method === 'GET') {
+        $code = trim((string) ($_GET['code'] ?? ''));
+        $state = trim((string) ($_GET['state'] ?? ''));
+        $frontendUrl = rtrim((string) getenv('VITE_APP_URL'), '/');
+        $fallbackPath = $frontendUrl !== '' ? $frontendUrl . '/dashboards/new' : '/';
+
+        if ($code === '' || $state === '') {
+            header('Location: ' . $fallbackPath . '?native_connection=google&status=error', true, 302);
+            exit;
+        }
+
+        try {
+            $result = $googleOAuthService->handleCallback($code, $state);
+            header(
+                'Location: ' . $fallbackPath
+                . '?native_connection=' . urlencode((string) $result['provider'])
+                . '&status=success&connection_id='
+                . urlencode((string) $result['connection_id']),
+                true,
+                302
+            );
+            exit;
+        } catch (\Throwable $callbackException) {
+            Logger::write('google_oauth_callback_failed', [
+                'message' => $callbackException->getMessage(),
+            ]);
+            header('Location: ' . $fallbackPath . '?native_connection=google&status=error', true, 302);
+            exit;
+        }
+    }
+
+    if ($resource === 'oauth' && ($segments[1] ?? '') === 'hubspot' && ($segments[2] ?? '') === 'callback' && $method === 'GET') {
+        $code = trim((string) ($_GET['code'] ?? ''));
+        $state = trim((string) ($_GET['state'] ?? ''));
+        $frontendUrl = rtrim((string) getenv('VITE_APP_URL'), '/');
+        $fallbackPath = $frontendUrl !== '' ? $frontendUrl . '/dashboards/new' : '/';
+
+        if ($code === '' || $state === '') {
+            header('Location: ' . $fallbackPath . '?native_connection=hubspot&status=error', true, 302);
+            exit;
+        }
+
+        try {
+            $result = $hubSpotOAuthService->handleCallback($code, $state);
+            header(
+                'Location: ' . $fallbackPath
+                . '?native_connection=hubspot&status=success&connection_id='
+                . urlencode((string) $result['connection_id']),
+                true,
+                302
+            );
+            exit;
+        } catch (\Throwable $callbackException) {
+            Logger::write('hubspot_oauth_callback_failed', [
+                'message' => $callbackException->getMessage(),
+            ]);
+            header('Location: ' . $fallbackPath . '?native_connection=hubspot&status=error', true, 302);
+            exit;
+        }
+    }
+
     if ($resource === 'health') {
         echo json_encode([
             'status' => 'ok',
@@ -458,12 +525,39 @@ try {
                 exit;
             }
 
-            if ($method === 'GET') {
+            $subResource = $segments[2] ?? null;
+
+            if ($subResource === 'authorize' && $method === 'POST') {
+                $provider = (string) ($existing['provider'] ?? '');
+
+                if ($provider === 'hubspot') {
+                    $authorizationUrl = $hubSpotOAuthService->buildAuthorizationUrl($existing, $authUser);
+                    echo json_encode(['authorization_url' => $authorizationUrl], JSON_THROW_ON_ERROR);
+                    exit;
+                }
+
+                if (in_array($provider, ['google_analytics', 'google_ads'], true)) {
+                    $authorizationUrl = $googleOAuthService->buildAuthorizationUrl($existing, $authUser);
+                    echo json_encode(['authorization_url' => $authorizationUrl], JSON_THROW_ON_ERROR);
+                    exit;
+                }
+
+                if (!in_array($provider, ['hubspot', 'google_analytics', 'google_ads'], true)) {
+                    http_response_code(501);
+                    echo json_encode([
+                        'error' => 'provider_not_implemented',
+                        'message' => 'O fluxo OAuth desta plataforma ainda não foi implementado.',
+                    ]);
+                    exit;
+                }
+            }
+
+            if ($subResource === null && $method === 'GET') {
                 echo json_encode($existing, JSON_THROW_ON_ERROR);
                 exit;
             }
 
-            if ($method === 'PUT') {
+            if ($subResource === null && $method === 'PUT') {
                 $body = file_get_contents('php://input');
                 $payload = json_decode($body ?: '{}', true, 512, JSON_THROW_ON_ERROR);
                 $validated = $validateExternalConnectionPayload(array_merge($existing, $payload), true);
@@ -475,7 +569,7 @@ try {
                 exit;
             }
 
-            if ($method === 'DELETE') {
+            if ($subResource === null && $method === 'DELETE') {
                 $externalConnectionRepository->delete($resourceId);
                 http_response_code(204);
                 exit;

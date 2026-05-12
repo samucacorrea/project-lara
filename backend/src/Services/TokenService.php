@@ -17,13 +17,17 @@ final class TokenService
 
     public function issue(array $user, int $ttlSeconds = 28800): string
     {
-        $header = ['alg' => 'HS256', 'typ' => 'JWT'];
-        $payload = [
+        return $this->issuePayload([
             'sub' => $user['id'],
             'role' => $user['role'],
             'exp' => time() + $ttlSeconds,
             'iat' => time(),
-        ];
+        ]);
+    }
+
+    public function issuePayload(array $payload): string
+    {
+        $header = ['alg' => 'HS256', 'typ' => 'JWT'];
 
         $segments = [
             $this->base64UrlEncode(json_encode($header, JSON_THROW_ON_ERROR)),

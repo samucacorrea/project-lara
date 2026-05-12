@@ -106,6 +106,13 @@ export async function deleteExternalConnection(id: number): Promise<void> {
   });
 }
 
+export async function authorizeExternalConnection(id: number): Promise<{ authorization_url: string }> {
+  return httpRequest<{ authorization_url: string }>(`/external-connections/${id}/authorize`, {
+    method: 'POST',
+    label: 'AuthorizeExternalConnection',
+  });
+}
+
 export async function listSourceDatasets(sourceKind?: string, sourceRefId?: number): Promise<SourceDataset[]> {
   const query =
     sourceKind && sourceRefId
