@@ -63,18 +63,11 @@ export const LineChartWidget: React.FC<ChartWidgetProps> = ({ widget, globalFilt
     return <StateBox title="Nenhum dado encontrado para este filtro." detail="Ajuste o período ou selecione outra dimensão." />;
   }
 
-  const comparisonMap = new Map((comparisonQuery.rows ?? []).map((row) => [row.label, row.value]));
   const hasSecondary = secondaryLabel && currentQuery.rows.some((row) => typeof row.valueY === 'number');
   const useSecondaryAxis = (widget.dataConfig?.lineSecondaryAxis ?? false) && hasSecondary;
 
-  const sortedRows = [...currentQuery.rows]
-    .map((row) => ({
-      label: row.label,
-      value: row.value,
-      valueY: row.valueY,
-      comparisonValue: comparisonDateRange ? comparisonMap.get(row.label) ?? 0 : undefined,
-    }))
-    .sort((a, b) => {
+  const sortRows = (rows: Array<{ label: string; value: number; valueY?: number }>) =>
+    [...rows].sort((a, b) => {
       const toDateValue = (value: string): number | null => {
         if (!value) return null;
         if (value.toLowerCase() === 'total') return Number.POSITIVE_INFINITY;
@@ -98,6 +91,16 @@ export const LineChartWidget: React.FC<ChartWidgetProps> = ({ widget, globalFilt
       }
       return String(a.label ?? '').localeCompare(String(b.label ?? ''), 'pt-BR');
     });
+
+  const currentSorted = sortRows(currentQuery.rows);
+  const comparisonSorted = comparisonDateRange ? sortRows(comparisonQuery.rows) : [];
+
+  const sortedRows = currentSorted.map((row, index) => ({
+    label: row.label,
+    value: row.value,
+    valueY: row.valueY,
+    comparisonValue: comparisonDateRange ? comparisonSorted[index]?.value ?? undefined : undefined,
+  }));
 
   return (
     <ResponsiveContainer width="100%" height="100%" minWidth={200} minHeight={180}>
