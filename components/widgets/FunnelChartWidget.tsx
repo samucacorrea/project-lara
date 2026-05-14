@@ -4,6 +4,7 @@ import { fetchDataPoints } from '../../services/dataQueryService';
 import { useCalculatedMetrics } from '../../hooks/useCalculatedMetrics';
 import { getCalculatedMetricKey, extractMetricDependencies, evaluateCalculatedMetric } from '../../utils/calculatedMetrics';
 import { useWidgetDebug } from '../../hooks/useWidgetDebug';
+import { resolveComparisonDateRange } from '../../utils/comparisonRange';
 
 interface FunnelChartProps {
   widget: Widget;
@@ -24,9 +25,11 @@ const MIN_STEPS = 3;
 
 export const FunnelChartWidget: React.FC<FunnelChartProps> = ({ widget, globalFilter, shareSlug }) => {
   const [values, setValues] = useState<FunnelValue[]>([]);
+  const [comparisonValues, setComparisonValues] = useState<FunnelValue[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const { metrics: calculatedMetrics } = useCalculatedMetrics();
+  const comparisonDateRange = useMemo(() => resolveComparisonDateRange(globalFilter), [globalFilter]);
 
   const steps = useMemo(() => {
     const raw = widget.dataConfig?.funnelSteps ?? [];
@@ -69,17 +72,17 @@ export const FunnelChartWidget: React.FC<FunnelChartProps> = ({ widget, globalFi
       return;
     }
 
-    const basePayload = {
+    const buildBasePayload = (dateRange: GlobalFilterState['dateRange']) => ({
       data_source_id: widget.dataConfig.sourceId,
       table: widget.dataConfig.tableName,
-      dateRange: globalFilter.dateRange,
+      dateRange,
       date_column: widget.dataConfig?.dateColumn ?? 'Data',
       share_slug: shareSlug,
       dimension_filter:
         globalFilter.dimensionFilter && globalFilter.dimensionFilter.value && globalFilter.dimensionFilter.value !== 'all'
           ? globalFilter.dimensionFilter
           : undefined,
-    };
+    });
 
     let cancelled = false;
     setIsLoading(true);
@@ -89,7 +92,7 @@ export const FunnelChartWidget: React.FC<FunnelChartProps> = ({ widget, globalFi
       const ref = resolveMetric(metric);
       if (!ref) return 0;
       if (ref.type === 'column') {
-        const data = await fetchDataPoints({ ...basePayload, metric: ref.name });
+        const data = await fetchDataPoints({ ...buildBasePayload(globalFilter.dateRange), metric: ref.name });
         const total = data.find((point) => point.label === 'Total') ?? data[0];
         return Number(total?.value ?? 0);
       }
@@ -99,7 +102,7 @@ export const FunnelChartWidget: React.FC<FunnelChartProps> = ({ widget, globalFi
         throw new Error(`Métrica ${ref.definition.name} não possui colunas na fórmula.`);
       }
       const dependencySeries = await Promise.all(
-        dependencies.map((column) => fetchDataPoints({ ...basePayload, metric: column }))
+        dependencies.map((column) => fetchDataPoints({ ...buildBasePayload(globalFilter.dateRange), metric: column }))
       );
       const valuesMap: Record<string, number> = {};
       dependencySeries.forEach((series, index) => {
@@ -110,19 +113,55 @@ export const FunnelChartWidget: React.FC<FunnelChartProps> = ({ widget, globalFi
       return evaluateCalculatedMetric(ref.definition.formula, valuesMap);
     };
 
-    Promise.all(steps.map((step) => loadMetricValue(step.metric)))
-      .then((results) => {
+    const loadMetricValueForRange = async (metric: string, dateRange: GlobalFilterState['dateRange']): Promise<number> => {
+      const ref = resolveMetric(metric);
+      if (!ref) return 0;
+      if (ref.type === 'column') {
+        const data = await fetchDataPoints({ ...buildBasePayload(dateRange), metric: ref.name });
+        const total = data.find((point) => point.label === 'Total') ?? data[0];
+        return Number(total?.value ?? 0);
+      }
+
+      const dependencies = extractMetricDependencies(ref.definition.formula);
+      if (dependencies.length === 0) {
+        throw new Error(`Métrica ${ref.definition.name} não possui colunas na fórmula.`);
+      }
+      const dependencySeries = await Promise.all(
+        dependencies.map((column) => fetchDataPoints({ ...buildBasePayload(dateRange), metric: column }))
+      );
+      const valuesMap: Record<string, number> = {};
+      dependencySeries.forEach((series, index) => {
+        const columnName = dependencies[index];
+        const total = series.find((point) => point.label === 'Total') ?? series[0];
+        valuesMap[columnName] = Number(total?.value ?? 0);
+      });
+      return evaluateCalculatedMetric(ref.definition.formula, valuesMap);
+    };
+
+    const currentPromise = Promise.all(steps.map((step) => loadMetricValueForRange(step.metric, globalFilter.dateRange)));
+    const comparisonPromise = comparisonDateRange
+      ? Promise.all(steps.map((step) => loadMetricValueForRange(step.metric, comparisonDateRange)))
+      : Promise.resolve<number[]>([]);
+
+    Promise.all([currentPromise, comparisonPromise])
+      .then(([results, comparisonResults]) => {
         if (cancelled) return;
         const nextValues = steps.map((step, index) => ({
           label: step.label,
           value: Number.isFinite(results[index]) ? results[index] : 0,
         }));
+        const nextComparisonValues = comparisonResults.map((value, index) => ({
+          label: steps[index]?.label ?? `Etapa ${index + 1}`,
+          value: Number.isFinite(value) ? value : 0,
+        }));
         setValues(nextValues);
+        setComparisonValues(nextComparisonValues);
       })
       .catch((err) => {
         if (cancelled) return;
         setError(err instanceof Error ? err.message : 'Erro ao carregar dados.');
         setValues([]);
+        setComparisonValues([]);
       })
       .finally(() => {
         if (!cancelled) {
@@ -139,6 +178,7 @@ export const FunnelChartWidget: React.FC<FunnelChartProps> = ({ widget, globalFi
     widget.dataConfig?.dateColumn,
     widget.dataConfig?.calculatedMetricOverrides,
     globalFilter,
+    comparisonDateRange,
     shareSlug,
     steps,
     resolveMetric,
@@ -205,11 +245,29 @@ export const FunnelChartWidget: React.FC<FunnelChartProps> = ({ widget, globalFi
   const maxBarWidth = 92;
   const minBarWidth = 45;
   const stepShrink = 12;
+  const comparisonMap = new Map(comparisonValues.map((item) => [item.label, item.value]));
 
   return (
     <div className="w-full h-full flex flex-col gap-3 py-2">
       {values.map((step, index) => {
         const widthPercent = Math.max(minBarWidth, maxBarWidth - index * stepShrink);
+        const comparisonValue = comparisonMap.get(step.label);
+        let comparisonText: React.ReactNode = null;
+        if (comparisonDateRange) {
+          let text = '—';
+          let klass = 'text-slate-200';
+          if (typeof comparisonValue === 'number') {
+            if (Math.abs(comparisonValue) >= 0.0000001) {
+              const delta = ((step.value - comparisonValue) / Math.abs(comparisonValue)) * 100;
+              const positive = delta >= 0;
+              text = `${positive ? '↑' : '↓'} ${Math.abs(delta).toLocaleString('pt-BR', { maximumFractionDigits: 1 })}%`;
+              klass = positive ? 'text-emerald-200' : 'text-rose-200';
+            } else if (Math.abs(step.value) < 0.0000001) {
+              text = '0,0%';
+            }
+          }
+          comparisonText = <span className={`text-[11px] font-medium ${klass}`}>{text}</span>;
+        }
 
         return (
           <div key={`${step.label}-${index}`} className="w-full flex justify-center">
@@ -217,15 +275,16 @@ export const FunnelChartWidget: React.FC<FunnelChartProps> = ({ widget, globalFi
               className="flex items-center justify-between px-6 text-white font-semibold shadow-sm"
               style={{
                 width: `${widthPercent}%`,
-                height: 58,
+                height: 64,
                 background: colors[index % colors.length],
                 borderRadius: 7,
               }}
             >
               <span className="text-sm truncate">{step.label}</span>
-              <span className="text-sm">
-                {step.value.toLocaleString('pt-BR')}
-              </span>
+              <div className="flex flex-col items-end">
+                <span className="text-sm">{step.value.toLocaleString('pt-BR')}</span>
+                {comparisonText}
+              </div>
             </div>
           </div>
         );
