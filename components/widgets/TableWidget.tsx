@@ -191,6 +191,16 @@ export const TableWidget: React.FC<TableWidgetProps> = ({ widget, globalFilter, 
     [numberFormatter]
   );
 
+  const formatMetric = useCallback(
+    (value: number) =>
+      formatMetricValue(value, {
+        format: widget.dataConfig?.valueFormat,
+        decimalPlaces: widget.dataConfig?.decimalPlaces,
+        currencySymbol: widget.dataConfig?.currencySymbol,
+      }),
+    [widget.dataConfig?.currencySymbol, widget.dataConfig?.decimalPlaces, widget.dataConfig?.valueFormat]
+  );
+
   const renderStateBox = (
     content: React.ReactNode,
     tone: 'neutral' | 'error' = 'neutral',
@@ -281,16 +291,6 @@ export const TableWidget: React.FC<TableWidgetProps> = ({ widget, globalFilter, 
   const comparisonEnabled = Boolean(data?.comparison?.enabled);
   const primaryComparisonMetric = widget.dataConfig?.tableComparisonMetric || headerMetrics[0];
   const primaryComparisonIndex = Math.max(0, headerMetrics.findIndex((metric) => metric === primaryComparisonMetric));
-
-  const formatMetric = useCallback(
-    (value: number) =>
-      formatMetricValue(value, {
-        format: widget.dataConfig?.valueFormat,
-        decimalPlaces: widget.dataConfig?.decimalPlaces,
-        currencySymbol: widget.dataConfig?.currencySymbol,
-      }),
-    [widget.dataConfig?.currencySymbol, widget.dataConfig?.decimalPlaces, widget.dataConfig?.valueFormat]
-  );
 
   return (
     <div className="w-full h-full min-h-[220px] min-w-[220px] relative">
