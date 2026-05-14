@@ -201,6 +201,7 @@ export interface WidgetDataConfig {
   tableComparisonMetric?: string;
   tableShowComparison?: boolean;
   tableBarMetric?: string;
+  tableBarReferenceMetric?: string;
   lineSecondaryAxis?: boolean;
   multiSelectFilter?: boolean;
   calculatedMetricOverrides?: Record<string, CalculatedMetric>;

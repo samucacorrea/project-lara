@@ -293,6 +293,10 @@ export const TableWidget: React.FC<TableWidgetProps> = ({ widget, globalFilter, 
   const primaryComparisonIndex = Math.max(0, headerMetrics.findIndex((metric) => metric === primaryComparisonMetric));
   const barMetricName = widget.dataConfig?.tableBarMetric || '';
   const barMetricIndex = barMetricName ? headerMetrics.findIndex((metric) => metric === barMetricName) : -1;
+  const barReferenceMetricName = widget.dataConfig?.tableBarReferenceMetric || '';
+  const barReferenceMetricIndex = barReferenceMetricName
+    ? headerMetrics.findIndex((metric) => metric === barReferenceMetricName)
+    : -1;
   const barMetricValues = barMetricIndex >= 0 ? sortedRows.map((row) => row.metrics[barMetricIndex] ?? 0) : [];
   const barMetricMax = barMetricValues.length > 0 ? Math.max(...barMetricValues, 0) : 0;
   const barPalette = ['#3b82f6', '#ef4444', '#f59e0b', '#06b6d4', '#8b5cf6', '#22c55e'];
@@ -357,18 +361,30 @@ export const TableWidget: React.FC<TableWidgetProps> = ({ widget, globalFilter, 
                       <span>{formatMetric(value)}</span>
                       {barMetricIndex === index && (
                         <div className="flex items-center gap-2 min-w-[180px]">
-                          <div className="h-1.5 flex-1 rounded-full bg-slate-200/80 overflow-hidden">
-                            <div
-                              className="h-full rounded-full"
-                              style={{
-                                width: `${barMetricMax > 0 ? Math.max(4, (value / barMetricMax) * 100) : 0}%`,
-                                backgroundColor: barPalette[rowIndex % barPalette.length],
-                              }}
-                            />
-                          </div>
-                          <span className="text-[11px] font-medium text-slate-500 w-10 text-right">
-                            {barMetricMax > 0 ? `${Math.round((value / barMetricMax) * 100)}%` : '0%'}
-                          </span>
+                          {(() => {
+                            const referenceValue =
+                              barReferenceMetricIndex >= 0 ? row.metrics[barReferenceMetricIndex] ?? 0 : barMetricMax;
+                            const safeReference = referenceValue > 0 ? referenceValue : 0;
+                            const percent = safeReference > 0 ? (value / safeReference) * 100 : 0;
+                            const clampedPercent = Math.max(0, Math.min(100, percent));
+
+                            return (
+                              <>
+                                <div className="h-1.5 flex-1 rounded-full bg-slate-200/80 overflow-hidden">
+                                  <div
+                                    className="h-full rounded-full"
+                                    style={{
+                                      width: `${safeReference > 0 ? Math.max(4, clampedPercent) : 0}%`,
+                                      backgroundColor: barPalette[rowIndex % barPalette.length],
+                                    }}
+                                  />
+                                </div>
+                                <span className="text-[11px] font-medium text-slate-500 w-10 text-right">
+                                  {safeReference > 0 ? `${Math.round(percent)}%` : '0%'}
+                                </span>
+                              </>
+                            );
+                          })()}
                         </div>
                       )}
                       {comparisonEnabled && (

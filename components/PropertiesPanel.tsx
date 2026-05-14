@@ -1978,7 +1978,7 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({
                     </p>
                   </div>
                   {(widget.dataConfig?.tableMetrics?.length ?? 0) > 0 && (
-                    <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+                    <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
                       <div>
                         <label className="block text-[10px] text-gray-500 mb-1">Métrica principal da comparação</label>
                         <select
@@ -2012,6 +2012,25 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({
                         </select>
                         <p className="text-[10px] text-gray-400 mt-1">
                           Exibe uma barra horizontal proporcional para a métrica escolhida em cada linha.
+                        </p>
+                      </div>
+                      <div>
+                        <label className="block text-[10px] text-gray-500 mb-1">Métrica base da barra</label>
+                        <select
+                          value={widget.dataConfig?.tableBarReferenceMetric || ''}
+                          onChange={(e) => handleDataChange('tableBarReferenceMetric', e.target.value || undefined)}
+                          className={inputClasses}
+                          disabled={!widget.dataConfig?.tableBarMetric}
+                        >
+                          <option value="">Usar maior valor visível</option>
+                          {(widget.dataConfig?.tableMetrics ?? []).map((metric) => (
+                            <option key={metric} value={metric}>
+                              {metric}
+                            </option>
+                          ))}
+                        </select>
+                        <p className="text-[10px] text-gray-400 mt-1">
+                          Se escolhida, o percentual vira: métrica da barra ÷ métrica base da mesma linha.
                         </p>
                       </div>
                     </div>
