@@ -1978,22 +1978,42 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({
                     </p>
                   </div>
                   {(widget.dataConfig?.tableMetrics?.length ?? 0) > 0 && (
-                    <div>
-                      <label className="block text-[10px] text-gray-500 mb-1">Métrica principal da comparação</label>
-                      <select
-                        value={widget.dataConfig?.tableComparisonMetric || widget.dataConfig?.tableMetrics?.[0] || ''}
-                        onChange={(e) => handleDataChange('tableComparisonMetric', e.target.value)}
-                        className={inputClasses}
-                      >
-                        {(widget.dataConfig?.tableMetrics ?? []).map((metric) => (
-                          <option key={metric} value={metric}>
-                            {metric}
-                          </option>
-                        ))}
-                      </select>
-                      <p className="text-[10px] text-gray-400 mt-1">
-                        Quando a comparação global estiver ativa, esta métrica define a coluna “vs anterior”.
-                      </p>
+                    <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+                      <div>
+                        <label className="block text-[10px] text-gray-500 mb-1">Métrica principal da comparação</label>
+                        <select
+                          value={widget.dataConfig?.tableComparisonMetric || widget.dataConfig?.tableMetrics?.[0] || ''}
+                          onChange={(e) => handleDataChange('tableComparisonMetric', e.target.value)}
+                          className={inputClasses}
+                        >
+                          {(widget.dataConfig?.tableMetrics ?? []).map((metric) => (
+                            <option key={metric} value={metric}>
+                              {metric}
+                            </option>
+                          ))}
+                        </select>
+                        <p className="text-[10px] text-gray-400 mt-1">
+                          Quando a comparação global estiver ativa, esta métrica define a coluna “vs anterior”.
+                        </p>
+                      </div>
+                      <div>
+                        <label className="block text-[10px] text-gray-500 mb-1">Métrica da barra por linha</label>
+                        <select
+                          value={widget.dataConfig?.tableBarMetric || ''}
+                          onChange={(e) => handleDataChange('tableBarMetric', e.target.value || undefined)}
+                          className={inputClasses}
+                        >
+                          <option value="">Sem barra adicional</option>
+                          {(widget.dataConfig?.tableMetrics ?? []).map((metric) => (
+                            <option key={metric} value={metric}>
+                              {metric}
+                            </option>
+                          ))}
+                        </select>
+                        <p className="text-[10px] text-gray-400 mt-1">
+                          Exibe uma barra horizontal proporcional para a métrica escolhida em cada linha.
+                        </p>
+                      </div>
                     </div>
                   )}
                 </div>

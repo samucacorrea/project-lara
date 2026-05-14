@@ -291,6 +291,11 @@ export const TableWidget: React.FC<TableWidgetProps> = ({ widget, globalFilter, 
   const comparisonEnabled = Boolean(data?.comparison?.enabled);
   const primaryComparisonMetric = widget.dataConfig?.tableComparisonMetric || headerMetrics[0];
   const primaryComparisonIndex = Math.max(0, headerMetrics.findIndex((metric) => metric === primaryComparisonMetric));
+  const barMetricName = widget.dataConfig?.tableBarMetric || '';
+  const barMetricIndex = barMetricName ? headerMetrics.findIndex((metric) => metric === barMetricName) : -1;
+  const barMetricValues = barMetricIndex >= 0 ? sortedRows.map((row) => row.metrics[barMetricIndex] ?? 0) : [];
+  const barMetricMax = barMetricValues.length > 0 ? Math.max(...barMetricValues, 0) : 0;
+  const barPalette = ['#3b82f6', '#ef4444', '#f59e0b', '#06b6d4', '#8b5cf6', '#22c55e'];
 
   return (
     <div className="w-full h-full min-h-[220px] min-w-[220px] relative">
@@ -348,8 +353,24 @@ export const TableWidget: React.FC<TableWidgetProps> = ({ widget, globalFilter, 
                     key={`row-${rowIndex}-metric-${index}`}
                     className="px-4 py-3 text-right font-semibold text-slate-800"
                   >
-                    <div className="flex flex-col items-end">
+                    <div className="flex flex-col items-end gap-1">
                       <span>{formatMetric(value)}</span>
+                      {barMetricIndex === index && (
+                        <div className="flex items-center gap-2 min-w-[180px]">
+                          <div className="h-1.5 flex-1 rounded-full bg-slate-200/80 overflow-hidden">
+                            <div
+                              className="h-full rounded-full"
+                              style={{
+                                width: `${barMetricMax > 0 ? Math.max(4, (value / barMetricMax) * 100) : 0}%`,
+                                backgroundColor: barPalette[rowIndex % barPalette.length],
+                              }}
+                            />
+                          </div>
+                          <span className="text-[11px] font-medium text-slate-500 w-10 text-right">
+                            {barMetricMax > 0 ? `${Math.round((value / barMetricMax) * 100)}%` : '0%'}
+                          </span>
+                        </div>
+                      )}
                       {comparisonEnabled && (
                         <span className="text-[11px] font-medium text-slate-400">
                           {formatMetric(row.comparisonMetrics[index] ?? 0)}
