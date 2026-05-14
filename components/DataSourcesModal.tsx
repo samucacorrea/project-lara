@@ -732,68 +732,74 @@ export const DataSourcesModal: React.FC<DataSourcesModalProps> = ({
                 <h3 className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-4">
                   {catalogMode === 'manual' ? 'Conexões Salvas' : 'Plataformas conectadas'}
                 </h3>
-                {catalogMode === 'manual' ? isLoading : isLoadingExternalConnections ? (
-                  <div className="text-center p-8 border-2 border-dashed border-gray-200 rounded-2xl text-gray-400 bg-white">
-                    {catalogMode === 'manual' ? 'Carregando fontes cadastradas...' : 'Carregando conexões nativas...'}
-                  </div>
-                ) : catalogMode === 'manual' ? dataSources.length === 0 ? (
-                  <div className="text-center p-8 border-2 border-dashed border-gray-200 rounded-2xl text-gray-400 bg-white">
-                    Nenhuma fonte de dados configurada.
-                  </div>
-                ) : (
-                  <div className="space-y-3">
-                    {dataSources.map(ds => (
-                      <div key={ds.id} className="flex items-center justify-between p-4 bg-white border border-gray-100 rounded-2xl shadow-sm hover:shadow-md transition-all group">
-                        <div className="flex items-center gap-4">
-                          <div className={`p-3 rounded-xl ${
-                            ds.type === 'mysql' ? 'bg-blue-50 text-blue-600' :
-                            ds.type === 'google_sheets' ? 'bg-green-50 text-green-600' :
-                            ds.type === 'supabase' ? 'bg-emerald-50 text-emerald-600' :
-                            'bg-purple-50 text-purple-600'
-                          }`}>
-                            {ds.type === 'mysql' && <Server size={20} />}
-                            {ds.type === 'supabase' && <Database size={20} />}
-                            {ds.type === 'google_sheets' && <Table size={20} />}
-                            {ds.type === 'bigquery' && <Database size={20} />}
-                          </div>
-                          <div>
-                            <div className="font-bold text-gray-800 text-sm">{ds.name}</div>
-                            <div className="text-xs text-gray-500 capitalize mt-0.5 flex items-center gap-2">
-                              {ds.type.replace('_', ' ')}
-                              {renderConfigSnippet(ds) && (
-                                <span className="bg-gray-100 px-1.5 rounded text-gray-400">
-                                  {renderConfigSnippet(ds)}
-                                </span>
-                              )}
+                {catalogMode === 'manual' ? (
+                  isLoading ? (
+                    <div className="text-center p-8 border-2 border-dashed border-gray-200 rounded-2xl text-gray-400 bg-white">
+                      Carregando fontes cadastradas...
+                    </div>
+                  ) : dataSources.length === 0 ? (
+                    <div className="text-center p-8 border-2 border-dashed border-gray-200 rounded-2xl text-gray-400 bg-white">
+                      Nenhuma fonte de dados configurada.
+                    </div>
+                  ) : (
+                    <div className="space-y-3">
+                      {dataSources.map(ds => (
+                        <div key={ds.id} className="flex items-center justify-between p-4 bg-white border border-gray-100 rounded-2xl shadow-sm hover:shadow-md transition-all group">
+                          <div className="flex items-center gap-4">
+                            <div className={`p-3 rounded-xl ${
+                              ds.type === 'mysql' ? 'bg-blue-50 text-blue-600' :
+                              ds.type === 'google_sheets' ? 'bg-green-50 text-green-600' :
+                              ds.type === 'supabase' ? 'bg-emerald-50 text-emerald-600' :
+                              'bg-purple-50 text-purple-600'
+                            }`}>
+                              {ds.type === 'mysql' && <Server size={20} />}
+                              {ds.type === 'supabase' && <Database size={20} />}
+                              {ds.type === 'google_sheets' && <Table size={20} />}
+                              {ds.type === 'bigquery' && <Database size={20} />}
+                            </div>
+                            <div>
+                              <div className="font-bold text-gray-800 text-sm">{ds.name}</div>
+                              <div className="text-xs text-gray-500 capitalize mt-0.5 flex items-center gap-2">
+                                {ds.type.replace('_', ' ')}
+                                {renderConfigSnippet(ds) && (
+                                  <span className="bg-gray-100 px-1.5 rounded text-gray-400">
+                                    {renderConfigSnippet(ds)}
+                                  </span>
+                                )}
+                              </div>
                             </div>
                           </div>
+                          
+                          <div className="flex items-center gap-3">
+                              <span className="px-3 py-1 text-[10px] font-bold bg-emerald-50 text-emerald-600 rounded-full border border-emerald-100 uppercase tracking-wide">
+                                {(ds.status ?? 'active').toUpperCase()}
+                              </span>
+                              <button
+                                onClick={() => handleEdit(ds)}
+                                className="px-3 py-1 text-[10px] font-bold bg-[#EEF0FF] text-[#5B4DFF] rounded-full border border-[#DADFFF] uppercase tracking-wide"
+                                title="Editar conexão"
+                              >
+                                Editar
+                              </button>
+                              <button 
+                                  onClick={() => {
+                                    setConfirmDeleteId(ds.id);
+                                    setConfirmDeleteName(ds.name);
+                                    setConfirmDeleteInput('');
+                                  }}
+                                  className="p-2 text-gray-300 hover:text-red-500 hover:bg-red-50 rounded-lg transition-all opacity-0 group-hover:opacity-100"
+                                  title="Excluir Conexão"
+                              >
+                                  <Trash2 size={16} />
+                              </button>
+                          </div>
                         </div>
-                        
-                        <div className="flex items-center gap-3">
-                            <span className="px-3 py-1 text-[10px] font-bold bg-emerald-50 text-emerald-600 rounded-full border border-emerald-100 uppercase tracking-wide">
-                              {(ds.status ?? 'active').toUpperCase()}
-                            </span>
-                            <button
-                              onClick={() => handleEdit(ds)}
-                              className="px-3 py-1 text-[10px] font-bold bg-[#EEF0FF] text-[#5B4DFF] rounded-full border border-[#DADFFF] uppercase tracking-wide"
-                              title="Editar conexão"
-                            >
-                              Editar
-                            </button>
-                            <button 
-                                onClick={() => {
-                                  setConfirmDeleteId(ds.id);
-                                  setConfirmDeleteName(ds.name);
-                                  setConfirmDeleteInput('');
-                                }}
-                                className="p-2 text-gray-300 hover:text-red-500 hover:bg-red-50 rounded-lg transition-all opacity-0 group-hover:opacity-100"
-                                title="Excluir Conexão"
-                            >
-                                <Trash2 size={16} />
-                            </button>
-                        </div>
-                      </div>
-                    ))}
+                      ))}
+                    </div>
+                  )
+                ) : isLoadingExternalConnections ? (
+                  <div className="text-center p-8 border-2 border-dashed border-gray-200 rounded-2xl text-gray-400 bg-white">
+                    Carregando conexões nativas...
                   </div>
                 ) : externalConnections.length === 0 ? (
                   <div className="text-center p-8 border-2 border-dashed border-gray-200 rounded-2xl text-gray-400 bg-white">
