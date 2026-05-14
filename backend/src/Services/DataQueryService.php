@@ -242,6 +242,7 @@ final class DataQueryService
 
     private function runBigQueryTableQuery(array $dataSource, array $payload): array
     {
+        $comparisonConfig = $this->resolveTableComparisonConfig($payload);
         $dimensions = $this->normalizeList($payload['dimensions'] ?? [], 3);
         $metrics = $this->normalizeList($payload['metrics'] ?? [], 10);
 
@@ -336,11 +337,23 @@ final class DataQueryService
             $rows
         );
 
-        return [
+        $result = [
             'dimensions' => array_values($resolvedDimensions),
             'metrics' => array_values($resolvedMetrics),
             'rows' => $formattedRows,
         ];
+
+        if ($comparisonConfig === null) {
+            return $result;
+        }
+
+        $comparisonPayload = $payload;
+        $comparisonPayload['dateRange'] = $comparisonConfig['comparison_range'];
+        unset($comparisonPayload['comparison']);
+
+        $comparisonResult = $this->runBigQueryTableQuery($dataSource, $comparisonPayload);
+
+        return $this->mergeTableComparisonResults($result, $comparisonResult, $comparisonConfig);
     }
 
     private function runBigQueryDimensionQuery(array $dataSource, array $payload): array
@@ -487,6 +500,7 @@ final class DataQueryService
 
     private function runSqlTableQuery(array $dataSource, array $payload): array
     {
+        $comparisonConfig = $this->resolveTableComparisonConfig($payload);
         [$pdo, $table, $columnMap, $dialect, $schema] = $this->bootstrapSql($dataSource, $payload);
 
         $dimensions = $this->normalizeList($payload['dimensions'] ?? [], 3);
@@ -574,11 +588,23 @@ final class DataQueryService
             $rawRows
         );
 
-        return [
+        $result = [
             'dimensions' => array_values($resolvedDimensions),
             'metrics' => array_values($resolvedMetrics),
             'rows' => $rows,
         ];
+
+        if ($comparisonConfig === null) {
+            return $result;
+        }
+
+        $comparisonPayload = $payload;
+        $comparisonPayload['dateRange'] = $comparisonConfig['comparison_range'];
+        unset($comparisonPayload['comparison']);
+
+        $comparisonResult = $this->runSqlTableQuery($dataSource, $comparisonPayload);
+
+        return $this->mergeTableComparisonResults($result, $comparisonResult, $comparisonConfig);
     }
 
     private function runGoogleSeriesQuery(array $dataSource, array $payload): array
@@ -656,6 +682,7 @@ final class DataQueryService
 
     private function runGoogleTableQuery(array $dataSource, array $payload): array
     {
+        $comparisonConfig = $this->resolveTableComparisonConfig($payload);
         $dimensions = $this->normalizeList($payload['dimensions'] ?? [], 3);
         $metrics = $this->normalizeList($payload['metrics'] ?? [], 10);
 
@@ -729,11 +756,23 @@ final class DataQueryService
             'rows' => count($rowsOutput),
         ]);
 
-        return [
+        $result = [
             'dimensions' => array_values($resolvedDimensions),
             'metrics' => array_values($resolvedMetrics),
             'rows' => $rowsOutput,
         ];
+
+        if ($comparisonConfig === null) {
+            return $result;
+        }
+
+        $comparisonPayload = $payload;
+        $comparisonPayload['dateRange'] = $comparisonConfig['comparison_range'];
+        unset($comparisonPayload['comparison']);
+
+        $comparisonResult = $this->runGoogleTableQuery($dataSource, $comparisonPayload);
+
+        return $this->mergeTableComparisonResults($result, $comparisonResult, $comparisonConfig);
     }
 
     private function runGoogleDimensionQuery(array $dataSource, array $payload): array
@@ -1347,6 +1386,163 @@ final class DataQueryService
         }
 
         return $payloadCopy;
+    }
+
+    private function resolveTableComparisonConfig(array $payload): ?array
+    {
+        $comparison = $payload['comparison'] ?? null;
+        $currentRange = $payload['dateRange'] ?? null;
+
+        if (!is_array($comparison) || !($comparison['enabled'] ?? false) || !is_array($currentRange)) {
+            return null;
+        }
+
+        if (
+            !isset($currentRange['start'], $currentRange['end']) ||
+            !is_string($currentRange['start']) ||
+            !is_string($currentRange['end'])
+        ) {
+            return null;
+        }
+
+        $mode = strtolower((string) ($comparison['mode'] ?? 'off'));
+        if (!in_array($mode, ['previous_period', 'previous_year', 'custom'], true)) {
+            return null;
+        }
+
+        try {
+            $currentStart = new \DateTimeImmutable($currentRange['start']);
+            $currentEnd = new \DateTimeImmutable($currentRange['end']);
+        } catch (\Throwable) {
+            return null;
+        }
+
+        if ($currentEnd < $currentStart) {
+            return null;
+        }
+
+        try {
+            $comparisonRange = match ($mode) {
+                'previous_period' => $this->buildPreviousPeriodRange($currentStart, $currentEnd),
+                'previous_year' => [
+                    'start' => $currentStart->modify('-1 year')->format('Y-m-d'),
+                    'end' => $currentEnd->modify('-1 year')->format('Y-m-d'),
+                ],
+                'custom' => $this->normalizeCustomComparisonRange($comparison['customRange'] ?? null),
+                default => null,
+            };
+        } catch (\Throwable) {
+            return null;
+        }
+
+        if (!is_array($comparisonRange) || !isset($comparisonRange['start'], $comparisonRange['end'])) {
+            return null;
+        }
+
+        return [
+            'enabled' => true,
+            'mode' => $mode,
+            'current_range' => [
+                'start' => $currentStart->format('Y-m-d'),
+                'end' => $currentEnd->format('Y-m-d'),
+            ],
+            'comparison_range' => $comparisonRange,
+        ];
+    }
+
+    private function buildPreviousPeriodRange(\DateTimeImmutable $currentStart, \DateTimeImmutable $currentEnd): array
+    {
+        $days = (int) $currentStart->diff($currentEnd)->format('%a') + 1;
+        $comparisonEnd = $currentStart->modify('-1 day');
+        $comparisonStart = $comparisonEnd->modify('-' . max(0, $days - 1) . ' days');
+
+        return [
+            'start' => $comparisonStart->format('Y-m-d'),
+            'end' => $comparisonEnd->format('Y-m-d'),
+        ];
+    }
+
+    private function normalizeCustomComparisonRange(mixed $customRange): ?array
+    {
+        if (!is_array($customRange)) {
+            return null;
+        }
+
+        if (
+            !isset($customRange['start'], $customRange['end']) ||
+            !is_string($customRange['start']) ||
+            !is_string($customRange['end'])
+        ) {
+            return null;
+        }
+
+        try {
+            $start = new \DateTimeImmutable($customRange['start']);
+            $end = new \DateTimeImmutable($customRange['end']);
+        } catch (\Throwable) {
+            return null;
+        }
+
+        if ($end < $start) {
+            return null;
+        }
+
+        return [
+            'start' => $start->format('Y-m-d'),
+            'end' => $end->format('Y-m-d'),
+        ];
+    }
+
+    private function mergeTableComparisonResults(array $baseResult, array $comparisonResult, array $comparisonConfig): array
+    {
+        $comparisonMap = [];
+        foreach (($comparisonResult['rows'] ?? []) as $row) {
+            if (!is_array($row)) {
+                continue;
+            }
+
+            $comparisonMap[$this->tableRowKey($row)] = $row;
+        }
+
+        $rows = array_map(function (array $row) use ($comparisonMap): array {
+            $comparisonRow = $comparisonMap[$this->tableRowKey($row)] ?? null;
+            $comparisonMetrics = is_array($comparisonRow['metrics'] ?? null) ? $comparisonRow['metrics'] : [];
+            $metrics = is_array($row['metrics'] ?? null) ? $row['metrics'] : [];
+            $deltaPercentages = [];
+
+            foreach ($metrics as $index => $currentValue) {
+                $currentNumeric = is_numeric($currentValue) ? (float) $currentValue : 0.0;
+                $comparisonNumeric = isset($comparisonMetrics[$index]) && is_numeric($comparisonMetrics[$index])
+                    ? (float) $comparisonMetrics[$index]
+                    : 0.0;
+
+                if (abs($comparisonNumeric) < 0.0000001) {
+                    $deltaPercentages[] = $currentNumeric === 0.0 ? 0.0 : null;
+                    continue;
+                }
+
+                $deltaPercentages[] = (($currentNumeric - $comparisonNumeric) / abs($comparisonNumeric)) * 100;
+            }
+
+            $row['comparison_metrics'] = array_map(
+                static fn ($value): float => is_numeric($value) ? (float) $value : 0.0,
+                $comparisonMetrics
+            );
+            $row['delta_percentages'] = $deltaPercentages;
+
+            return $row;
+        }, $baseResult['rows'] ?? []);
+
+        $baseResult['comparison'] = $comparisonConfig;
+        $baseResult['rows'] = $rows;
+
+        return $baseResult;
+    }
+
+    private function tableRowKey(array $row): string
+    {
+        $dimensions = is_array($row['dimensions'] ?? null) ? $row['dimensions'] : [];
+        return implode('||', array_map(static fn ($value): string => (string) ($value ?? ''), $dimensions));
     }
 
     /**

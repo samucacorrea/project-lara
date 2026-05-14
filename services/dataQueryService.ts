@@ -1,5 +1,7 @@
 import { httpRequest } from './httpClient';
 
+import { ComparisonState } from '../types';
+
 export interface DataQueryPayload {
   data_source_id: string;
   table: string;
@@ -14,6 +16,7 @@ export interface DataQueryPayload {
   metrics?: string[];
   limit?: number;
   dimension_filter?: { dimension: string; value: string };
+  comparison?: ComparisonState;
 }
 
 export interface DataPoint {
@@ -29,9 +32,17 @@ export interface DimensionValue {
 export interface TableQueryResponse {
   dimensions: string[];
   metrics: string[];
+  comparison?: {
+    enabled: boolean;
+    mode: Exclude<ComparisonState['mode'], 'off'>;
+    current_range: { start: string; end: string };
+    comparison_range: { start: string; end: string };
+  };
   rows: {
     dimensions: (string | number | null)[];
     metrics: number[];
+    comparison_metrics?: number[];
+    delta_percentages?: (number | null)[];
   }[];
 }
 

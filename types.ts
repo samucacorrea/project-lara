@@ -120,16 +120,24 @@ export interface DataSourcePayload {
 }
 
 export type DateFilterPreset = 'today' | 'yesterday' | 'last7' | 'last15' | 'last30' | 'custom';
+export type ComparisonMode = 'off' | 'previous_period' | 'previous_year' | 'custom';
 
 export interface DateRange {
   start: string;
   end: string;
 }
 
+export interface ComparisonState {
+  enabled: boolean;
+  mode: ComparisonMode;
+  customRange?: DateRange;
+}
+
 export interface GlobalFilterState {
   preset: DateFilterPreset;
   dateRange: DateRange;
   dimensionFilter?: { dimension: string; value: string };
+  comparison?: ComparisonState;
 }
 
 export interface WidgetStyle {
@@ -190,6 +198,8 @@ export interface WidgetDataConfig {
   currencySymbol?: string;
   tableDimensions?: string[];
   tableMetrics?: string[];
+  tableComparisonMetric?: string;
+  tableShowComparison?: boolean;
   lineSecondaryAxis?: boolean;
   multiSelectFilter?: boolean;
   calculatedMetricOverrides?: Record<string, CalculatedMetric>;

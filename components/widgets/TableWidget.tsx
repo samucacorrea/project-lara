@@ -2,6 +2,7 @@ import React, { useCallback, useMemo, useState } from 'react';
 import { Widget, GlobalFilterState } from '../../types';
 import { useTableData } from '../../hooks/useTableData';
 import { useWidgetDebug } from '../../hooks/useWidgetDebug';
+import { formatMetricValue } from '../../utils/numberFormat';
 
 interface TableWidgetProps {
   widget: Widget;
@@ -106,6 +107,7 @@ export const TableWidget: React.FC<TableWidgetProps> = ({ widget, globalFilter, 
     dimensions: dimensionColumns,
     metrics: metricColumns,
     dateRange: globalFilter.dateRange,
+    comparison: globalFilter.comparison,
     dateColumn: widget.dataConfig?.dateColumn ?? 'Data',
     shareSlug,
     limit: parsedLimit,
@@ -130,6 +132,16 @@ export const TableWidget: React.FC<TableWidgetProps> = ({ widget, globalFilter, 
         if (typeof value === 'number') return value;
         const numeric = Number(value ?? 0);
         return Number.isFinite(numeric) ? numeric : 0;
+      }),
+      comparisonMetrics: metricColumns.map((_, index) => {
+        const value = row.comparison_metrics?.[index];
+        const numeric = Number(value ?? 0);
+        return Number.isFinite(numeric) ? numeric : 0;
+      }),
+      deltaPercentages: metricColumns.map((_, index) => {
+        const value = row.delta_percentages?.[index];
+        const numeric = Number(value);
+        return Number.isFinite(numeric) ? numeric : null;
       }),
     }));
   }, [data, dimensionColumns, metricColumns]);
@@ -266,6 +278,20 @@ export const TableWidget: React.FC<TableWidgetProps> = ({ widget, globalFilter, 
     );
   };
 
+  const comparisonEnabled = Boolean(data?.comparison?.enabled);
+  const primaryComparisonMetric = widget.dataConfig?.tableComparisonMetric || headerMetrics[0];
+  const primaryComparisonIndex = Math.max(0, headerMetrics.findIndex((metric) => metric === primaryComparisonMetric));
+
+  const formatMetric = useCallback(
+    (value: number) =>
+      formatMetricValue(value, {
+        format: widget.dataConfig?.valueFormat,
+        decimalPlaces: widget.dataConfig?.decimalPlaces,
+        currencySymbol: widget.dataConfig?.currencySymbol,
+      }),
+    [widget.dataConfig?.currencySymbol, widget.dataConfig?.decimalPlaces, widget.dataConfig?.valueFormat]
+  );
+
   return (
     <div className="w-full h-full min-h-[220px] min-w-[220px] relative">
       <div className="overflow-auto h-full w-full custom-scrollbar rounded-xl border border-gray-100">
@@ -296,6 +322,11 @@ export const TableWidget: React.FC<TableWidgetProps> = ({ widget, globalFilter, 
                   </div>
                 </th>
               ))}
+              {comparisonEnabled && (
+                <th className="px-4 py-3 font-semibold tracking-wide text-right">
+                  vs anterior
+                </th>
+              )}
             </tr>
           </thead>
           <tbody>
@@ -317,9 +348,32 @@ export const TableWidget: React.FC<TableWidgetProps> = ({ widget, globalFilter, 
                     key={`row-${rowIndex}-metric-${index}`}
                     className="px-4 py-3 text-right font-semibold text-slate-800"
                   >
-                    {numberFormatter.format(value)}
+                    <div className="flex flex-col items-end">
+                      <span>{formatMetric(value)}</span>
+                      {comparisonEnabled && (
+                        <span className="text-[11px] font-medium text-slate-400">
+                          {formatMetric(row.comparisonMetrics[index] ?? 0)}
+                        </span>
+                      )}
+                    </div>
                   </td>
                 ))}
+                {comparisonEnabled && (
+                  <td className="px-4 py-3 text-right font-semibold">
+                    {(() => {
+                      const delta = row.deltaPercentages[primaryComparisonIndex];
+                      if (delta === null || delta === undefined) {
+                        return <span className="text-slate-400">—</span>;
+                      }
+                      const positive = delta >= 0;
+                      return (
+                        <span className={positive ? 'text-emerald-500' : 'text-rose-500'}>
+                          {positive ? '↑' : '↓'} {Math.abs(delta).toLocaleString('pt-BR', { maximumFractionDigits: 1 })}%
+                        </span>
+                      );
+                    })()}
+                  </td>
+                )}
               </tr>
             ))}
           </tbody>

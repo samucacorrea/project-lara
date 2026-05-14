@@ -9,6 +9,7 @@ interface UseTableDataParams {
   dimensions: string[];
   metrics: string[];
   dateRange?: GlobalFilterState['dateRange'];
+  comparison?: GlobalFilterState['comparison'];
   dateColumn?: string;
   shareSlug?: string;
   limit?: number;
@@ -22,6 +23,7 @@ export const useTableData = ({
   dimensions,
   metrics,
   dateRange,
+  comparison,
   dateColumn,
   shareSlug,
   limit,
@@ -48,6 +50,10 @@ export const useTableData = ({
       date_column: dateColumn,
       share_slug: shareSlug,
       limit,
+      comparison:
+        comparison && comparison.enabled && comparison.mode !== 'off'
+          ? comparison
+          : undefined,
       dimension_filter:
         dimensionFilter && dimensionFilter.value && dimensionFilter.value !== 'all'
           ? dimensionFilter
@@ -56,7 +62,7 @@ export const useTableData = ({
       .then((response) => setData(response))
       .catch((err) => setError(err instanceof Error ? err.message : 'Erro ao consultar dados.'))
       .finally(() => setIsLoading(false));
-  }, [enabled, sourceId, table, dimensions, metrics, dateRange, dateColumn, shareSlug, limit, dimensionFilter]);
+  }, [enabled, sourceId, table, dimensions, metrics, dateRange, comparison, dateColumn, shareSlug, limit, dimensionFilter]);
 
   return { data, isLoading, error };
 };

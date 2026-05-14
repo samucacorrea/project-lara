@@ -79,6 +79,7 @@ const defaultGlobalFilter: GlobalFilterState = {
   preset: 'last30',
   dateRange: presetConfig.last30.range,
   dimensionFilter: { dimension: 'campaign', value: 'all' },
+  comparison: { enabled: false, mode: 'off' },
 };
 
 const defaultCanvasSettings: CanvasSettings = {
@@ -388,6 +389,37 @@ function AppContent() {
     setGlobalFilter((prev) => ({
       ...prev,
       dimensionFilter: { dimension, value },
+    }));
+  }, []);
+
+  const handleComparisonModeChange = useCallback((mode: 'off' | 'previous_period' | 'previous_year' | 'custom') => {
+    setGlobalFilter((prev) => ({
+      ...prev,
+      comparison:
+        mode === 'off'
+          ? { enabled: false, mode: 'off' }
+          : {
+              enabled: true,
+              mode,
+              customRange:
+                mode === 'custom'
+                  ? prev.comparison?.customRange ?? prev.dateRange
+                  : prev.comparison?.customRange,
+            },
+    }));
+  }, []);
+
+  const handleComparisonCustomDateChange = useCallback((field: 'start' | 'end', value: string) => {
+    setGlobalFilter((prev) => ({
+      ...prev,
+      comparison: {
+        enabled: true,
+        mode: 'custom',
+        customRange: {
+          start: field === 'start' ? value : prev.comparison?.customRange?.start ?? prev.dateRange.start,
+          end: field === 'end' ? value : prev.comparison?.customRange?.end ?? prev.dateRange.end,
+        },
+      },
     }));
   }, []);
 
@@ -2033,6 +2065,8 @@ function AppContent() {
             value={globalFilter}
             onPresetChange={handlePresetChange}
             onCustomDateChange={handleCustomDateChange}
+            onComparisonModeChange={handleComparisonModeChange}
+            onComparisonCustomDateChange={handleComparisonCustomDateChange}
             onClearDimensionFilter={handleClearDimensionFilter}
           />
         )}

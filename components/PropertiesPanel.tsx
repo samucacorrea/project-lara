@@ -1977,6 +1977,25 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({
                       Selecionadas: {widget.dataConfig?.tableMetrics?.length ?? 0} de {MAX_TABLE_METRICS}
                     </p>
                   </div>
+                  {(widget.dataConfig?.tableMetrics?.length ?? 0) > 0 && (
+                    <div>
+                      <label className="block text-[10px] text-gray-500 mb-1">Métrica principal da comparação</label>
+                      <select
+                        value={widget.dataConfig?.tableComparisonMetric || widget.dataConfig?.tableMetrics?.[0] || ''}
+                        onChange={(e) => handleDataChange('tableComparisonMetric', e.target.value)}
+                        className={inputClasses}
+                      >
+                        {(widget.dataConfig?.tableMetrics ?? []).map((metric) => (
+                          <option key={metric} value={metric}>
+                            {metric}
+                          </option>
+                        ))}
+                      </select>
+                      <p className="text-[10px] text-gray-400 mt-1">
+                        Quando a comparação global estiver ativa, esta métrica define a coluna “vs anterior”.
+                      </p>
+                    </div>
+                  )}
                 </div>
               )}
 
