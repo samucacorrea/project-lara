@@ -304,18 +304,24 @@ function AppContent() {
   );
 
   const getCanvasWidth = useCallback(() => {
+    if (canvasSettings.fullscreen && canvasRef.current?.parentElement) {
+      const parentWidth = canvasRef.current.parentElement.clientWidth;
+      if (parentWidth && parentWidth > 0) {
+        return parentWidth;
+      }
+    }
+    if (canvasSettings.fullscreen && canvasRef.current?.clientWidth) {
+      const fullscreenWidth = canvasRef.current.clientWidth;
+      if (fullscreenWidth > 0) {
+        return fullscreenWidth;
+      }
+    }
     if (canvasSettings.fullscreen && canvasSettings.width) {
       return canvasSettings.width;
     }
     const measured = canvasRef.current?.clientWidth;
     if (measured && measured > 0) {
       return measured;
-    }
-    if (canvasSettings.fullscreen && canvasRef.current?.parentElement) {
-      const parentWidth = canvasRef.current.parentElement.clientWidth;
-      if (parentWidth && parentWidth > 0) {
-        return parentWidth;
-      }
     }
     const base = canvasSettings.width ?? LAYOUT_CONFIG[reportLayout].width;
     return base;
@@ -1269,9 +1275,9 @@ function AppContent() {
     const hasCustomWidth = Boolean(canvasSettings.width);
     const capWidthToViewport = previewMode && !isFullscreen && !isSharedView;
     const style: React.CSSProperties = {
-      width: capWidthToViewport ? '100%' : widthCss,
-      maxWidth: capWidthToViewport ? widthCss : isFullscreen || hasCustomWidth ? 'none' : '100%',
-      minWidth: capWidthToViewport ? undefined : isFullscreen || hasCustomWidth ? widthCss : undefined,
+      width: isFullscreen ? '100%' : capWidthToViewport ? '100%' : widthCss,
+      maxWidth: isFullscreen ? 'none' : capWidthToViewport ? widthCss : hasCustomWidth ? 'none' : '100%',
+      minWidth: isFullscreen ? '100%' : capWidthToViewport ? undefined : hasCustomWidth ? widthCss : undefined,
       minHeight,
       height: isFullscreen ? '100vh' : undefined,
       backgroundColor: canvasSettings.backgroundColor ?? '#F3F4F8',
